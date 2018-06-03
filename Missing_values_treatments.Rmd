@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 **Missing data imputation methods theory**
 
-The very first step in data analytics process is to clean variables from missing values by imputation whenever there is a reasonable possibility to do so, for example, if there is less than 50 percent of data missing or removing the variable from the dataset before final modelling process if the missingness is untreatable. The raw dataset that we will analyse has many missing values. This is important to recognise method that we should use for missing values treatment as it informs us about the options that we should use to impute or remove the missing data. There are three main categories of missing data mechanisms: 
+The very first step in data analytics process is to clean variables from missing values by imputation whenever there is a reasonable possibility to do so, for example, if there is less than 50 percent of data missing or removing the variable from the dataset before final modelling process if the missingness is untreatable. The raw dataset has many missing values. This is important to recognise method that we should use for missing values treatment as it informs us about the options that we should use to impute or remove the missing data. There are three main categories of missing data mechanisms: 
 
 * **Missing Completely At Random (MCAR)**, occurs when data's missingness is unrelated to the data.
 

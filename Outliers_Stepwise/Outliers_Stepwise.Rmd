@@ -1,0 +1,728 @@
+---
+title: "OutliersDetection_StepwiseRegression"
+author: "Marta Fajlhauer"
+date: "18 April 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, echo=FALSE,message=FALSE, results = 'hide', comment = NA}
+library(readr)
+CrimeData <- read_csv("CrimeRegressionClean.csv")
+CrimeData$state <- as.factor(CrimeData$state)
+CrimeData$communityname <- as.factor(CrimeData$communityname)
+```
+
+## Outliers detection, Model preparation and Stepwise regression. 
+
+**Univariate outliers detection**
+
+The data used here comes from UCI Machine Learning repository and is the same that I have used in the Missing Values Imputation Methods, so I already finished the first process of cleaning messy data. The next step is outliers detection that is very important to detect any unusual observations that can bias our result. We could argue that the explanatory variables are real-life cases coming from an observational study and they should not be treated as outliers or that the explanatory variables have high leverages rather than outliers but in this case, variables are coming from the population we might think should be normally distributed. From the dataset description, we know that: *all values more than 3 SD above the mean are normalized to 1.00; all values more than 3 SD below the mean are normalized to 0.00*[1] . Due to the decision of removing all observations that were 0 or 1 we expect that the problem with outliers is minimalised.  
+
+There may be many reasons to detect outliers including:
+
+* It can mislead us with pattern interpretation in the plot. 
+
+* Elimination of outliers from a regression model can bring a different result. Observations that are both outliers and high leverage impact on both the slopes and intercept model. 
+
+We can also recognise different types of unusual Observations:
+
+* **Univariate outlier** is not necessarily a regression outlier, but it has some observations that are unusual in one of the variables in the dataset
+
+* **Regression outliers** If we get variable Y conditional on X there may be some unusual values but will have large residual, however, may not affect the coefficient slope. 
+
+* **high leverage values** are values with unusual x-value. The more it differs from the mean of X the more leverage has on the regression fit. 
+
+* **Influential observation** is the observation that has high leverage and is an outlier in the term Y conditional on X.
+
+The first method of univariate outlier detection that I decided to use is based on F-statistics from ANOVA table. Different states may have different tendencies, like different population rate, urban areas, poverty level, ethnicity and so on. Looking at all states as one country and looking for outliers in this way may consequence in excluding full state that has unusual tendencies comparing to the USA as a whole or to removing important observations to that particular state. To minimalise this problem I have decided to test first how the distribution of numerical variables differ by categorical variable: states using ANOVA. This is important as big F-value suggest that there is a big difference in the mean between the states so outliers for given states are not necessarily outliers at all. The variables with high F-test >10 are:
+
+```{r Appendix6, echo=FALSE, message=FALSE, warning=FALSE, comment=NA}
+# ANOVA1WAY <- aov(PctSpeakEnglOnly~state, data = CrimeData)
+# summary(ANOVA1WAY)
+
+StatsF <- c(31.95, 22.8, 27.725, 38.622, 34.465, 21.914, 20.013, 19.381, 10.681, 
+            14.286, 13.3, 12.914, 10.015, 19.19, 12.784, 16.763, 23.846, 16.775, 
+            15.851, 12.9, 13.757, 13.873, 12.572, 13.008, 32.487, 11.228, 26.623, 
+            29.544, 22.311, 33.787, 32.487, 23.247, 23.326, 14.758, 16.099, 32.465, 
+            10.742, 22.869, 21.609, 30.173, 19.154, 22.196, 57.106, 53.166, 13.852, 
+            68.629, 26.907, 65.377, 45.082, 47.706, 10.319, 20.009, 12.871, 12.647)
+
+Vars <- c("PctSpeakEnglOnly", "racePctWhite", "racepctblack", "racePctAsian", "racePctHisp",
+          "medIncome", "pctWFarmSelf", "pctWInvInc", "pctWRetire", "perCapInc", "whitePerCap",
+          "blackPerCap", "HispPerCap", "PctPopUnderPov", "PctEmplManu", "MalePctDivorce",
+          "FemalePctDiv", "PersPerFam", "PctKids2Par", "PctYoungKids2Par", "PctWorkMom",
+          "PctWorkMomYoungKids", "PctTeen2Par", "PctIlleg", "PctRecImmig8", "PctImmigRec10",
+          "PctRecentImmig", "PctRecImmig5", "PctNotSpeakEnglWell", "PctRecImmig10", "PctRecImmig8",
+          "PctLargHouseFam", "PctLargHouseOccup", "PersPerOccupHous", "PersPerOwnOccHous",
+          "PctPersDenseHous", "PctPersOwnOccup", "PersPerRentOccHous", "PctHousOccup",
+          "PctHousNoPhone", "MedYrHousBuilt", "PctVacMore6Mos", "OwnOccMedVal", "MedRent",
+          "MedRentPctHousInc", "MedOwnCostPctInc", "PctSameHouse85", "PctBornSameState",
+          "PctForeignBorn", "MedOwnCostPctIncNoMtg", "PctSameCity85", "PctSameState85",
+          "PopDens", "ViolentCrimesPerPop") 
+ANOVAFresults <- data.frame(StatsF, Vars)
+ANOVAFresults <- ANOVAFresults[order(ANOVAFresults$StatsF),]
+rownames(ANOVAFresults) = c()
+ANOVAFresults
+``` 
+
+For those variables with large F-test, I remove outliers for different states and use mean substitution method by calculating mean for this particular state and substituting missing value in the state with the mean value for this state. 
+
+```{r Outliers, echo = FALSE, message=FALSE, warning=FALSE, comment=NA, include=FALSE, results="hide"}
+
+apply(is.na(CrimeData),2,sum)
+# Those variables with large F-test remove outliers for different group and use mean substitution method for the group. 
+remove_outliers <- function(x, na.rm = TRUE, ...) {
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = na.rm, ...)
+  H <- 1.5 * IQR(x, na.rm = na.rm)
+  y <- x
+  y[x < (qnt[1] - H)] <- NA
+  y[x > (qnt[2] + H)] <- NA
+  y
+}
+library(dplyr)
+CrimeData <- CrimeData %>%
+  group_by(state) %>%
+  mutate_at(vars('racePctWhite', 'racepctblack', 'racePctAsian', 'racePctHisp', 'medIncome', 'pctWFarmSelf', 'pctWInvInc', 'pctWRetire', 'perCapInc', 'whitePerCap', 'blackPerCap', 'HispPerCap', 'PctPopUnderPov', 'PctEmplManu',
+                 'MalePctDivorce', 'FemalePctDiv', 'PersPerFam', 'PctKids2Par', 'PctYoungKids2Par', 'NumIlleg', 'PctWorkMom', 'PctWorkMomYoungKids', 'PctTeen2Par',
+                 'PctIlleg', 'PctTeen2Par', 'NumImmig', 'PctRecImmig8', 'PctImmigRec10', 'PctRecentImmig', 'PctRecImmig5', 'PctNotSpeakEnglWell', 'PctRecImmig10',
+                 'PctLargHouseFam', 'PctLargHouseOccup', 'PersPerOccupHous', 'PersPerOwnOccHous', 'PctPersDenseHous', 'PctPersOwnOccup', 'PersPerRentOccHous', 'PctHousOccup',
+                 'PctHousNoPhone', 'MedYrHousBuilt', 'PctVacMore6Mos', 'OwnOccMedVal', 'MedRent', 'MedRentPctHousInc', 'MedOwnCostPctInc', 'PctSameHouse85', 'PctBornSameState', 'PctForeignBorn',
+                 'MedOwnCostPctIncNoMtg', 'PctSameCity85', 'PctSameState85', 'PopDens', 'ViolentCrimesPerPop', 'PctSpeakEnglOnly'),
+            funs(remove_outliers))
+apply(is.na(CrimeData),2,sum)
+library(plyr)
+impute <- function(x, fun) {
+  missing <- is.na(x)
+  replace(x, missing, fun(x[!missing]))
+}
+CrimeData <- ddply(CrimeData, ~ state, transform, PctSpeakEnglOnly = impute(PctSpeakEnglOnly, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, racePctWhite = impute(racePctWhite, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, racepctblack = impute(racepctblack, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, racePctAsian = impute(racePctAsian, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, racePctHisp = impute(racePctHisp, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, medIncome = impute(medIncome, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, pctWFarmSelf = impute(pctWFarmSelf, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, pctWInvInc = impute(pctWInvInc, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, pctWRetire = impute(pctWRetire, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, perCapInc = impute(perCapInc, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, whitePerCap = impute(whitePerCap, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, blackPerCap = impute(blackPerCap, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, HispPerCap = impute(HispPerCap, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctPopUnderPov = impute(PctPopUnderPov, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctEmplManu = impute(PctEmplManu, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, MalePctDivorce = impute(MalePctDivorce, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, FemalePctDiv = impute(FemalePctDiv, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PersPerFam = impute(PersPerFam, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctKids2Par = impute(PctKids2Par, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctYoungKids2Par = impute(PctYoungKids2Par, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, NumIlleg = impute(NumIlleg, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctWorkMom = impute(PctWorkMom, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctWorkMomYoungKids = impute(PctWorkMomYoungKids, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctTeen2Par = impute(PctTeen2Par, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctIlleg = impute(PctIlleg, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, NumImmig = impute(NumImmig, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctRecImmig8 = impute(PctRecImmig8, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctImmigRec10 = impute(PctImmigRec10, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctRecentImmig = impute(PctRecentImmig, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctRecImmig5 = impute(PctRecImmig5, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctNotSpeakEnglWell = impute(PctNotSpeakEnglWell, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctRecImmig10 = impute(PctRecImmig10, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctLargHouseFam = impute(PctLargHouseFam, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctLargHouseOccup = impute(PctLargHouseOccup, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PersPerOccupHous = impute(PersPerOccupHous, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PersPerOwnOccHous = impute(PersPerOwnOccHous, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctPersDenseHous = impute(PctPersDenseHous, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctPersOwnOccup = impute(PctPersOwnOccup, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PersPerRentOccHous = impute(PersPerRentOccHous, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctHousOccup = impute(PctHousOccup, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctHousNoPhone = impute(PctHousNoPhone, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, MedYrHousBuilt = impute(MedYrHousBuilt, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctVacMore6Mos = impute(PctVacMore6Mos, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, OwnOccMedVal = impute(OwnOccMedVal, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, MedRent = impute(MedRent, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, MedRentPctHousInc = impute(MedRentPctHousInc, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, MedOwnCostPctInc = impute(MedOwnCostPctInc, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctSameHouse85 = impute(PctSameHouse85, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctBornSameState = impute(PctBornSameState, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctForeignBorn = impute(PctForeignBorn, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, MedOwnCostPctIncNoMtg = impute(MedOwnCostPctIncNoMtg, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctSameCity85 = impute(PctSameCity85, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PctSameState85 = impute(PctSameState85, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, PopDens = impute(PopDens, mean))
+CrimeData <- ddply(CrimeData, ~ state, transform, ViolentCrimesPerPop = impute(ViolentCrimesPerPop, mean))
+```
+
+I decided to use Tukey method for outliers detection for rest of the variables that the method can improve data significantly. Tukey method uses quartiles which are resistant to extreme values. The method assumes that a value between the inner and outer fences in boxplot is a possible outlier and an extreme value beyond the outer fences is a probable outlier. The Tukey’s method is good for skewed data as it makes no assumptions based on distribution and it does not depend on a mean or standard deviation. The drawback is that although the boxplot may be applicable for both symmetric and skewed data, the more skewed the data, the more observations may be detected as outliers. This results from the fact that this method is based on robust measures such as lower and upper quartiles and the IQR without considering the skewness of the data. Hence, the decision of removing outliers using Tukey method is based on 2 cases: Case 1 is when the total number of removed observations is not greater than 10% and case 2 is when there is more than 10% of missing values but outliers are nicely cleaned without too many repetitions of outlier detection. 
+
+```{r Tukey, echo = FALSE, message=FALSE, warning=FALSE, comment=NA, include=FALSE, results="hide"}
+outlierKD <- function(dt, var) {
+  var_name <- eval(substitute(var),eval(dt))
+  na1 <- sum(is.na(var_name))
+  m1 <- mean(var_name, na.rm = T)
+  par(mfrow=c(2, 2), oma=c(0,0,3,0))
+  boxplot(var_name, main="With outliers")
+  hist(var_name, main="With outliers", xlab=NA, ylab=NA)
+  outlier <- boxplot.stats(var_name)$out
+  mo <- mean(outlier)
+  var_name <- ifelse(var_name %in% outlier, NA, var_name)
+  boxplot(var_name, main="Without outliers")
+  hist(var_name, main="Without outliers", xlab=NA, ylab=NA)
+  title("Outlier Check", outer=TRUE)
+  na2 <- sum(is.na(var_name))
+  cat("Outliers identified:", na2 - na1, "n")
+  cat("Propotion (%) of outliers:", round((na2 - na1) / sum(!is.na(var_name))*100, 1), "n")
+  cat("Mean of the outliers:", round(mo, 2), "n")
+  m2 <- mean(var_name, na.rm = T)
+  cat("Mean without removing outliers:", round(m1, 2), "n")
+  cat("Mean if we remove outliers:", round(m2, 2), "n")
+  response <- readline(prompt="Do you want to remove outliers and to replace with NA? [yes/no]: ")
+  if(response == "y" | response == "yes"){
+    dt[as.character(substitute(var))] <- invisible(var_name)
+    assign(as.character(as.list(match.call())$dt), dt, envir = .GlobalEnv)
+    cat("Outliers successfully removed", "n")
+    return(invisible(dt))
+  } else{
+    cat("Nothing changed", "n")
+    return(invisible(var_name))
+  }
+}
+outlierKD(CrimeData, householdsize)
+outlierKD(CrimeData, householdsize)
+outlierKD(CrimeData, householdsize)
+CrimeData$householdsize <- ifelse(is.na(CrimeData$householdsize), mean(CrimeData$householdsize, na.rm=TRUE), CrimeData$householdsize)
+outlierKD(CrimeData, agePct12t21)
+outlierKD(CrimeData, agePct12t21)
+CrimeData$agePct12t21 <- ifelse(is.na(CrimeData$agePct12t21), mean(CrimeData$agePct12t21, na.rm = T), CrimeData$agePct12t21)
+outlierKD(CrimeData, agePct12t29)
+outlierKD(CrimeData, agePct12t29)
+CrimeData$agePct12t29 <- ifelse(is.na(CrimeData$agePct12t29), mean(CrimeData$agePct12t29, na.rm = T), CrimeData$agePct12t29)
+outlierKD(CrimeData, agePct65up)
+CrimeData$agePct65up <- ifelse(is.na(CrimeData$agePct65up), mean(CrimeData$agePct65up, na.rm = T), CrimeData$agePct65up)
+outlierKD(CrimeData, pctWWage)
+CrimeData$pctWWage <- ifelse(is.na(CrimeData$pctWWage), mean(CrimeData$pctWWage, na.rm = T), CrimeData$pctWWage)
+outlierKD(CrimeData, pctWSocSec)
+CrimeData$pctWSocSec <- ifelse(is.na(CrimeData$pctWSocSec), mean(CrimeData$pctWSocSec, na.rm = T), CrimeData$pctWSocSec)
+outlierKD(CrimeData, pctWPubAsst)
+outlierKD(CrimeData, pctWPubAsst)
+CrimeData$pctWPubAsst <- ifelse(is.na(CrimeData$pctWPubAsst), mean(CrimeData$pctWPubAsst, na.rm = T), CrimeData$pctWPubAsst)
+outlierKD(CrimeData, OtherPerCap)
+outlierKD(CrimeData, OtherPerCap)
+CrimeData$OtherPerCap <- ifelse(is.na(CrimeData$OtherPerCap), mean(CrimeData$OtherPerCap, na.rm = T), CrimeData$OtherPerCap)
+outlierKD(CrimeData, PctLess9thGrade)
+outlierKD(CrimeData, PctLess9thGrade)
+outlierKD(CrimeData, PctLess9thGrade)
+CrimeData$PctLess9thGrade <- ifelse(is.na(CrimeData$PctLess9thGrade), mean(CrimeData$PctLess9thGrade, na.rm = T), CrimeData$PctLess9thGrade)
+outlierKD(CrimeData, PctNotHSGrad)
+CrimeData$PctNotHSGrad <- ifelse(is.na(CrimeData$PctNotHSGrad), mean(CrimeData$PctNotHSGrad, na.rm = T), CrimeData$PctNotHSGrad)
+outlierKD(CrimeData, PctBSorMore)
+outlierKD(CrimeData, PctBSorMore)
+outlierKD(CrimeData, PctBSorMore)
+CrimeData$PctBSorMore <- ifelse(is.na(CrimeData$PctBSorMore), mean(CrimeData$PctBSorMore, na.rm = T), CrimeData$PctBSorMore)
+outlierKD(CrimeData, PctUnemployed)
+CrimeData$PctUnemployed <- ifelse(is.na(CrimeData$PctUnemployed), mean(CrimeData$PctUnemployed, na.rm = T), CrimeData$PctUnemployed)
+outlierKD(CrimeData, PctEmploy)
+CrimeData$PctEmploy <- ifelse(is.na(CrimeData$PctEmploy), mean(CrimeData$PctEmploy, na.rm = T), CrimeData$PctEmploy)
+outlierKD(CrimeData, PctEmplProfServ)
+outlierKD(CrimeData, PctEmplProfServ)
+CrimeData$PctEmplProfServ <- ifelse(is.na(CrimeData$PctEmplProfServ), mean(CrimeData$PctEmplProfServ, na.rm = T), CrimeData$PctEmplProfServ)
+outlierKD(CrimeData, PctOccupManu)
+CrimeData$PctOccupManu <- ifelse(is.na(CrimeData$PctOccupManu), mean(CrimeData$PctOccupManu, na.rm = T), CrimeData$PctOccupManu)
+outlierKD(CrimeData, PctOccupMgmtProf)
+outlierKD(CrimeData, PctOccupMgmtProf)
+outlierKD(CrimeData, PctOccupMgmtProf)
+CrimeData$PctOccupMgmtProf <- ifelse(is.na(CrimeData$PctOccupMgmtProf), mean(CrimeData$PctOccupMgmtProf, na.rm = T), CrimeData$PctOccupMgmtProf)
+outlierKD(CrimeData, MalePctNevMarr)
+CrimeData$MalePctNevMarr <- ifelse(is.na(CrimeData$MalePctNevMarr), mean(CrimeData$MalePctNevMarr, na.rm = T), CrimeData$MalePctNevMarr)
+outlierKD(CrimeData, PctImmigRec8)
+CrimeData$PctImmigRec8 <- ifelse(is.na(CrimeData$PctImmigRec8), mean(CrimeData$PctImmigRec8, na.rm = T), CrimeData$PctImmigRec8)
+outlierKD(CrimeData, PctHousLess3BR)
+outlierKD(CrimeData, PctHousLess3BR)
+CrimeData$PctHousLess3BR <- ifelse(is.na(CrimeData$PctHousLess3BR), mean(CrimeData$PctHousLess3BR, na.rm = T), CrimeData$PctHousLess3BR)
+outlierKD(CrimeData, PctHousOwnOcc)
+CrimeData$PctHousOwnOcc <- ifelse(is.na(CrimeData$PctHousOwnOcc), mean(CrimeData$PctHousOwnOcc, na.rm = T), CrimeData$PctHousOwnOcc)
+outlierKD(CrimeData, OwnOccMedVal)
+outlierKD(CrimeData, OwnOccMedVal)
+CrimeData$OwnOccMedVal <- ifelse(is.na(CrimeData$OwnOccMedVal), mean(CrimeData$OwnOccMedVal, na.rm = T), CrimeData$OwnOccMedVal)
+outlierKD(CrimeData, agePct16t24)
+outlierKD(CrimeData, agePct16t24)
+CrimeData$agePct16t24 <- ifelse(is.na(CrimeData$agePct16t24), mean(CrimeData$agePct16t24, na.rm = T), CrimeData$agePct16t24)
+outlierKD(CrimeData, AsianPerCap)
+outlierKD(CrimeData, AsianPerCap)
+CrimeData$AsianPerCap <- ifelse(is.na(CrimeData$AsianPerCap), mean(CrimeData$AsianPerCap, na.rm = T), CrimeData$AsianPerCap)
+outlierKD(CrimeData, PctImmigRecent)
+outlierKD(CrimeData, PctImmigRecent)
+outlierKD(CrimeData, PctImmigRecent)
+CrimeData$PctImmigRecent <- ifelse(is.na(CrimeData$PctImmigRecent), mean(CrimeData$PctImmigRecent, na.rm = T), CrimeData$PctImmigRecent)
+outlierKD(CrimeData, PersPerRentOccHous)
+outlierKD(CrimeData, PersPerRentOccHous)
+outlierKD(CrimeData, PersPerRentOccHous)
+CrimeData$PersPerRentOccHous <- ifelse(is.na(CrimeData$PersPerRentOccHous), mean(CrimeData$PersPerRentOccHous, na.rm = T), CrimeData$PersPerRentOccHous)
+outlierKD(CrimeData, PctWOFullPlumb)
+outlierKD(CrimeData, PctWOFullPlumb)
+outlierKD(CrimeData, PctWOFullPlumb)
+CrimeData$PctWOFullPlumb <- ifelse(is.na(CrimeData$PctWOFullPlumb), mean(CrimeData$PctWOFullPlumb, na.rm = T), CrimeData$PctWOFullPlumb)
+outlierKD(CrimeData, LandArea)
+outlierKD(CrimeData, LandArea)
+CrimeData$LandArea <- ifelse(is.na(CrimeData$LandArea), mean(CrimeData$LandArea, na.rm = T), CrimeData$LandArea)
+```
+
+There were some variables such as: "PctUsePubTrans", "PctVacantBoarded", "HousVacant", "NumUnderPov", 'numbUrban', 'PctLargHouseFam', 'PctLargHouseOccup' that Tukey method outlier detection didn't work well. For these observations, I have decided to plot scatterplot and density plots to understand them further. 
+
+```{r scatter, echo = FALSE, message=FALSE, warning=FALSE, comment=NA, fig.width=10, fig.height=5}
+par(mfrow = c(1,1))
+library(psych)
+pairs.panels(CrimeData[,c("PctUsePubTrans", "PctVacantBoarded", "HousVacant", "NumUnderPov", 'numbUrban', 'PctLargHouseFam', 'PctLargHouseOccup')], 
+             density = TRUE,
+             ellipses = T, 
+             lm = T, 
+             method = 'spearman',
+             rug = F,
+             smoother = T)
+```
+
+
+There is a strong correlation between PctLargHouseFam and PctLargHouseOccup (0.92). As PctLargHouseFam is a subset of PctLargHouseOccup decision of removing the first one where the second one is cleaned already. NumbUrban and population are hard to specify as outliers as different places can have different urbanisation rate. For example, small villages have small urbanisation and population rate where big cities will have big. Without knowledge of the geographic area, we cannot say if the specific record is an outlier or not hence the decision of leaving the variables without cleaning. From the metadata, we know that the variables:
+
+* PctUsePubTrans: percent of people using public transit for commuting.
+
+* PctVacantBoarded: percent of vacant housing that is boarded up. 
+
+* HousVacant: number of vacant households. 
+
+* NumUnderPov: number of people under the poverty level (numeric - decimal). 
+
+As the first 3 (HousVacant, PctVacantBoarded and PctUsePubTrans) may represent poverty level in the population I have decided to remove them and leave variable NumUnderPov.
+
+**Multivariate outliers detection.**
+
+```{r reading data, echo=FALSE,message=FALSE, results = 'hide', comment = NA}
+library(readr)
+CrimeData <- read_csv("GeoSpatial.csv")
+CrimeData$state <- as.factor(CrimeData$state)
+CrimeData$communityname <- as.factor(CrimeData$communityname)
+```
+
+After cleaning outliers in univariate case I will concentrate on cleaning multivariate outliers. Before doing that I decided to decode comunitynames and states variables on real geographic regions using Google and GoogleMap and plot in geospatial position on a map. To perform Multivariate outliers detection first I need to fit a linear model (ordinary least squares) for all numerical variables in the dataset. We are simply putting everything into one huge model to check the most important variables, colinearity, normality assumption of the model and so on. From graphs produced we can find that:
+
+* The graph for Residuals vs fitted shows that there is an increase of variance within the residuals which suggests the problem with heteroscedasticity and variables 3, 16 and 326 are potential outliers. 
+
+* Normal QQ plot shows that the data is heavily skewed and we should not preserve normality assumption. 
+
+```{r, echo=FALSE}
+mod <- lm(ViolentCrimesPerPop ~ ., data=CrimeData[,c(-1, -2, -3, -4)])
+par(mfrow=c(1,2))
+standarised <- rstandard(mod)  ## get standardised residuals
+fitted <- mod$fitted.values
+plot(x = fitted, y = standarised, main = "standarised residuals vs fitted values", col = "darkblue")
+abline(h=0.25)
+plot(mod, pch = 18, col = 'navyblue', ask = F, which = 2)
+```
+
+All of these suggests that there are many potential multivariate outliers and we need to clean the data from them. 
+
+```{r linear model, echo=FALSE,message=FALSE, comment = NA, results="hide"}
+modImpr <- lm(ViolentCrimesPerPop ~ ., data=CrimeData[,c(-1, -2, -3, -4)])
+```
+
+From the produced OLS result is:
+
+```{r Appendix7, echo=FALSE, message=FALSE, warning=FALSE, comment=NA}
+library(readr)
+CrimeData <- read_csv("GeoSpatial.csv")
+CrimeData$state <- as.factor(CrimeData$state)
+CrimeData$communityname <- as.factor(CrimeData$communityname)
+modImpr <- lm(ViolentCrimesPerPop ~ ., data=CrimeData[,c(-1, -2, -3, -4)])
+summary(modImpr)
+``` 
+
+we know that multiple regression r-sq is 0.5528 so only 55% of the variability in the data is explained by the model. We can produce Cook,s distance graph to see values with the highest Cook value in comparison to their observations and to decide if we should keep the observation or remove them from our dataset. The highest Cook's distance for 1644, 1648, 1655. 
+
+```{r Cooks distance, echo=FALSE, message=FALSE, comment=NA, fig.width=10, fig.height=5}
+par(mfrow=c(1,1))
+plot(modImpr, pch = 18, col = 'navyblue', which = c(4))
+```
+
+Cook\'s distance depends on the size of standarised residuals and leverage. *Definition of the Cook\'s distance for the general linear model is given by $$D_i=\frac{(\hat\beta - \hat\beta_{(i)})^T(X^TX)(\hat \beta - \hat \beta_{(i)})}{ps^2}$$. This can be thought of as a scaled distance between $\hat \beta$ and $\hat \beta_{(i)}$ which is the estimate of $\beta$ omiting the ith observation.* [2]
+
+On the plot, we can see that the spikes for 1653 and 1644 differ in height from other data points however for the observation 1642 the spike is a similar height to the rest of the data points so it is not an influential observation. These observations are:
+
+```{r show Cooks, comment=NA, echo=FALSE, message=FALSE, fig.width=10}
+Record <- CrimeData[c(1653, 1644),c(1,4)]
+rownames(Record) <- c()
+as.data.frame(Record)
+```
+
+We can plot residual plot pattern to see if the residuals are uncorrelated as any pattern in the residual plot suggests otherwise. 
+
+```{r residuals plot, echo=FALSE, message=FALSE, comment=NA, fig.width=10, fig.height=5}
+par(las=1, mfrow=c(1,1))
+plot(residuals(modImpr), ylab="Residuals", main = "Residuals vs order", col = "darkblue") 
+abline(h=0)
+par(mfrow=c(1,1))
+hist(residuals(modImpr))
+```
+
+We can check using VIF if there is a problem with multicollinearity in the model. Since there are variables with VIF larger than 10 then we have the problem with multicollinearity. Below are attached only the variables with VIF more than 10.
+
+```{r VIF, comment=NA, echo=FALSE, message=FALSE, warning=FALSE}
+library(car)
+VIF <- as.list(vif(modImpr))
+VIF <- data.frame(VIF$pctWWage, VIF$pctWSocSec, VIF$perCapInc, VIF$whitePerCap, VIF$PctRecImmig5, VIF$PctRecImmig8, VIF$PctRecImmig10, VIF$PersPerOccupHous, VIF$PctPersOwnOccup) 
+VIF
+```
+
+To finalise we can look for the best model that can be fitted using backwards and forward elimination as well as the combination of both in the stepwise regression. In the backward elimination first we are fitting all variables in the model and we are taking into account the smallest value of AIC that accounts for the ranking what would happen if we take one variable out. The lower the AIC value is the better the model is. We are taking out one variable at the time as if you will take one variable out the variable that was colinear to it may have changed behaviour a bit. The forward substitution regression model selection works in a similar way but first, we are taking into consideration the null model. The null model that does not have any explanatory variables so we are starting only with the mean of violent crimes per population. We add one variable at the time with the smallest AIC that is lower than AIC of the model that we start with. Backward and forward elimination shows us, different models. In stepwise regression, we start with the null model that has only intercept. We are adding or removing variable at each step depending on the AIC result. Full models of backwards, forward and stepwise regression are:
+
+```{r Appendix8, echo=FALSE, message=FALSE, warning=FALSE, comment=NA}
+# step(modImpr, direction = "backward")
+Sback <- lm(formula = ViolentCrimesPerPop ~ racepctblack + racePctWhite + 
+    agePct12t21 + pctWWage + pctWInvInc + pctWSocSec + pctWPubAsst + 
+    OtherPerCap + NumUnderPov + PctEmploy + PctEmplManu + PersPerFam + 
+    PctKids2Par + PctTeen2Par + PctWorkMom + PctIlleg + NumImmig + 
+    PctImmigRecent + PctImmigRec10 + PctSpeakEnglOnly + PctNotSpeakEnglWell + 
+    PersPerRentOccHous + PctPersDenseHous + PctHousOccup + PctHousOwnOcc + 
+    PctVacMore6Mos + PctHousNoPhone + OwnOccMedVal + MedOwnCostPctInc + 
+    MedOwnCostPctIncNoMtg + PctForeignBorn + PctBornSameState, 
+    data = CrimeData[, c(-1, -2, -3, -4)])
+summary(Sback)
+#  The AIC for the best model in forward selection is Step:  AIC=-8508.92
+SForward <- lm(formula = ViolentCrimesPerPop ~ PctKids2Par + racePctWhite + 
+    PctBornSameState + PctIlleg + PctPersDenseHous + PctHousOccup + 
+    PctVacMore6Mos + pctWInvInc + PctHousOwnOcc + perCapInc + 
+    MedOwnCostPctIncNoMtg + PctSpeakEnglOnly + racepctblack + 
+    MedRentPctHousInc + PersPerRentOccHous + NumImmig + NumUnderPov + 
+    PctHousNoPhone + PctImmigRec10 + OwnOccMedVal + PctImmigRecent + 
+    PctTeen2Par + PctForeignBorn + PctNotSpeakEnglWell + OtherPerCap + 
+    PctEmplManu + PctBSorMore + LandArea + PersPerFam + pctWPubAsst + 
+    PersPerOccupHous + PctUnemployed, data = CrimeData[, c(-1, 
+    -2, -3, -4)])
+summary(SForward)
+# The best model with AIC of AIC=-8510.48 is
+Stepwise <- lm(formula = ViolentCrimesPerPop ~ PctKids2Par + racePctWhite + 
+    PctBornSameState + PctIlleg + PctPersDenseHous + PctHousOccup + 
+    PctVacMore6Mos + pctWInvInc + PctHousOwnOcc + perCapInc + 
+    MedOwnCostPctIncNoMtg + PctSpeakEnglOnly + racepctblack + 
+    PersPerRentOccHous + NumImmig + NumUnderPov + PctHousNoPhone + 
+    PctImmigRec10 + OwnOccMedVal + PctImmigRecent + PctTeen2Par + 
+    PctForeignBorn + PctNotSpeakEnglWell + OtherPerCap + PctEmplManu + 
+    PctBSorMore + PersPerFam + pctWPubAsst + PersPerOccupHous + 
+    MedOwnCostPctInc, data = CrimeData[, c(-1, -2, -3, -4)])
+summary(Stepwise)
+```
+
+The best substitution method is the one with the lowest AIC. In this case: Backwards(AIC=-8513.62) < Combination (AIC=-8510.48) < Forward(AIC = -8508.92). So the best selection method for the stepwise regression will be backwards selection.  
+
+```{r fit model, comment=NA, echo=FALSE, message=FALSE, warning=FALSE, results="hide"}
+modyn<- lm(ViolentCrimesPerPop~1,  data=CrimeData[,c(-1, -2, -3, -4)])
+# step(modImpr, direction = "backward")
+Sback <- lm(formula = ViolentCrimesPerPop ~ racepctblack + racePctWhite + 
+    agePct12t21 + pctWWage + pctWInvInc + pctWSocSec + pctWPubAsst + 
+    OtherPerCap + NumUnderPov + PctEmploy + PctEmplManu + PersPerFam + 
+    PctKids2Par + PctTeen2Par + PctWorkMom + PctIlleg + NumImmig + 
+    PctImmigRecent + PctImmigRec10 + PctSpeakEnglOnly + PctNotSpeakEnglWell + 
+    PersPerRentOccHous + PctPersDenseHous + PctHousOccup + PctHousOwnOcc + 
+    PctVacMore6Mos + PctHousNoPhone + OwnOccMedVal + MedOwnCostPctInc + 
+    MedOwnCostPctIncNoMtg + PctForeignBorn + PctBornSameState, 
+    data = CrimeData[, c(-1, -2, -3, -4)])
+SbackSum <- summary(Sback)
+
+#  The AIC for the best model in forward selection is Step:  AIC=-8508.92
+SForward <- lm(formula = ViolentCrimesPerPop ~ PctKids2Par + racePctWhite + 
+    PctBornSameState + PctIlleg + PctPersDenseHous + PctHousOccup + 
+    PctVacMore6Mos + pctWInvInc + PctHousOwnOcc + perCapInc + 
+    MedOwnCostPctIncNoMtg + PctSpeakEnglOnly + racepctblack + 
+    MedRentPctHousInc + PersPerRentOccHous + NumImmig + NumUnderPov + 
+    PctHousNoPhone + PctImmigRec10 + OwnOccMedVal + PctImmigRecent + 
+    PctTeen2Par + PctForeignBorn + PctNotSpeakEnglWell + OtherPerCap + 
+    PctEmplManu + PctBSorMore + LandArea + PersPerFam + pctWPubAsst + 
+    PersPerOccupHous + PctUnemployed, data = CrimeData[, c(-1, 
+    -2, -3, -4)])
+SForwSum <- summary(SForward)
+ 
+# The best model with AIC of AIC=-8510.48 is
+Stepwise <- lm(formula = ViolentCrimesPerPop ~ PctKids2Par + racePctWhite + 
+    PctBornSameState + PctIlleg + PctPersDenseHous + PctHousOccup + 
+    PctVacMore6Mos + pctWInvInc + PctHousOwnOcc + perCapInc + 
+    MedOwnCostPctIncNoMtg + PctSpeakEnglOnly + racepctblack + 
+    PersPerRentOccHous + NumImmig + NumUnderPov + PctHousNoPhone + 
+    PctImmigRec10 + OwnOccMedVal + PctImmigRecent + PctTeen2Par + 
+    PctForeignBorn + PctNotSpeakEnglWell + OtherPerCap + PctEmplManu + 
+    PctBSorMore + PersPerFam + pctWPubAsst + PersPerOccupHous + 
+    MedOwnCostPctInc, data = CrimeData[, c(-1, -2, -3, -4)])
+StepwiseSum <- summary(Stepwise)
+```
+
+We can check for the VIF of the selected models of the stepwise regression by seeing range of the VIF and what variables they are for: backwise substitution
+
+```{r VIF back, comment=NA, echo=FALSE, warning=FALSE, message=FALSE}
+library(car)
+VIF <- as.list(vif(Sback))
+range(VIF)
+VIF[4]
+VIF[17]
+```
+
+Forward substituion:
+
+```{r VIF forw, comment=NA, echo=FALSE, warning=FALSE, message=FALSE}
+library(car)
+VIF <- as.list(vif(SForward))
+range(VIF)
+VIF[1]
+VIF[28]
+```
+
+and Combination of forward and backwards:
+
+```{r VIF stepw, comment=NA, echo=FALSE, warning=FALSE, message=FALSE}
+library(car)
+VIF <- as.list(vif(Stepwise))
+range(VIF)
+VIF[1]
+VIF[15]
+```
+
+No variables with higher than 10 VIF hence the problem with multicolinearity has been reduced. However, we can show the graph importance of features for the best models of different approach
+
+```{r plot fit,  comment=NA, echo=FALSE, message=FALSE, warning=FALSE,}
+library(plyr)
+library(ggplot2)
+library(data.table)
+SbackCoef <- as.data.frame(SbackSum$coefficients[,1])
+SForwCoef <- as.data.frame(SForwSum$coefficients[,1])
+SStepCoef <- as.data.frame(StepwiseSum$coefficients[,1])
+mylist <- list(one = SbackCoef, two = SForwCoef, three = SStepCoef)
+for(i in 1:length(mylist)){
+  colnames(mylist[[i]]) <- paste0(names(mylist)[i], "_", colnames(mylist[[i]]))
+  mylist[[i]]$ROWNAMES <- rownames(mylist[[i]])
+}
+coef <- join_all(mylist, by = "ROWNAMES", type = "full")
+coef <- data.frame(coef$ROWNAMES, coef$`two_SForwSum$coefficients[, 1]`, coef$`one_SbackSum$coefficients[, 1]`, coef$`three_StepwiseSum$coefficients[, 1]`)
+rownames(coef) <- coef$ROWNAMES; coef$ROWNAMES <- NULL
+colnames(coef) <- c("feature", "Sforw", "Sback", "SStep")
+coef[is.na(coef)] <- 0
+to_plot = melt(coef, id.vars = 'feature', variable.name = 'model', value.name = 'coefficient')
+ggplot(to_plot, aes(x = feature, y = coefficient, fill = model)) +
+  coord_flip() +
+  geom_bar(stat = 'identity') +
+  facet_wrap(~model) +
+  theme(axis.text=element_text(size=6)) +
+  guides(fill = FALSE)
+```
+
+And we can compare the important measurements of the output such as R-squared, R-squared Adjusted, F-statistics and Residuals Standard error
+
+```{r regress table, comment=NA, echo=FALSE, message=FALSE, warning=FALSE}
+Values <- c(
+SbackSum$sigma, # Backward residual standard error
+SbackSum$r.squared, # Backward r-squared
+SbackSum$adj.r.squared, # Backward R-squared adjusted
+SbackSum$fstatistic[1], # Backward F-statistics
+SForwSum$sigma,
+SForwSum$r.squared,
+SForwSum$adj.r.squared,
+SForwSum$fstatistic[1],
+StepwiseSum$sigma,
+StepwiseSum$r.squared,
+StepwiseSum$adj.r.squared,
+StepwiseSum$fstatistic[1])
+Method <- c(rep("Backwards", 4), rep("Forward", 4), rep("Stepwise", 4))
+Output <- c("StandardErrorResiduals", "R-squared", "R-squaredAdj", "Fstatistics", "StandardErrorResiduals", "R-squared", "R-squaredAdj", "Fstatistics", "StandardErrorResiduals", "R-squared", "R-squaredAdj", "Fstatistics")
+data.frame(Method, Output, Values)
+```
+
+However, distribution of residuals seems to be skewed. Problem with not constant variance and non-linearity we may try to overcome using log transformation. Summary of the result after fitting the regression model with logarithmic transformation of the response variable is available after running this code:  
+
+```{r log-linear model,message=FALSE, comment = NA, results="hide"}
+ CrimeData <- CrimeData[c(-324,-1644, -1648, -1655),]
+ modImpr_log <- lm(log(ViolentCrimesPerPop) ~ ., data = CrimeData[,c(-1,-2, -3, -4)])
+# summary(modImpr_log) # 0.5827
+```
+
+
+```{r residual plots, echo=FALSE, message=FALSE, comment=NA, fig.width=10, fig.height=5}
+par(mfrow=c(1,2))
+standarised <- rstandard(modImpr_log)  ## get standardised residuals
+fitted <- modImpr_log$fitted.values
+plot(x = fitted, y = standarised, main = "standarised residuals vs fitted values", col = "darkblue")
+abline(h=0.25)
+plot(modImpr_log, pch = 18, col = 'navyblue', ask = F, which = 2)
+```
+
+
+Normality plot and scale-location family plot has improved but the not constant variance problem still remains. To check normality assumption we can run Shapiro - Wilk test of normality. The null hypothesis of the Shapiro Wilk test is that data is normally distributed and we reject the hypothesis of normality if the p-value is less than 0.05
+
+```{r Shapiro-Wilk test, message=FALSE, comment=NA, echo=FALSE}
+shapiro.test(CrimeData$ViolentCrimesPerPop)
+```
+
+Very small p-value suggests that the data is not normally distributed. 
+
+```{r, echo=FALSE, message=FALSE, comment=NA, fig.width=10, fig.height=5, warning = FALSE}
+par(mfrow = c(1,1))
+plot(modImpr_log, which=4, col = 'navyblue')
+cooksd <- cooks.distance(modImpr_log)
+library(faraway)
+```
+
+observation 312, 1234, 1667 have the highest Cook's distance but as for the observations 1234 and 1641 there is a big difference between the level of Cook's distance for those values and of the rest of the data and observation 312 seems to be at the same level of Cook's distance as rest of the data.
+
+There are difficulties with logarithmic transformation approach such as there is just a slight improvement with the r-score and sqrt(MSE). 
+*"In order to evaluate the performance of a statistical learning method on a given dataset, we need some way to measure how well its predictions actually match the observed data. That is, we need to quantify the extent
+to which the predicted response value for a given observation is close to
+the true response value for that observation. In the regression setting, the
+most commonly-used measure is the mean squared error (MSE), given by $$MSE = \frac{1}{n}\displaystyle\sum_{i=1}^{n} (y_i - \hat{f}(x_i))^2$$ where ˆ f(xi) is the prediction that ˆ f gives for the ith observation. The MSE
+will be small if the predicted responses are very close to the true responses,
+and will be large if, for some of the observations, the predicted and true
+responses differ substantially."* [3]
+
+The good thing is that normality plot has improved significantly.
+
+We can recheck standardised residuals plot. If the normal linear model holds, the standardised residuals have approximately standard normal distributions hence approximately 95 percent will be between 2 standard deviations out of the mean and 99.6 within 3 standard deviations. So the absolute value for most of the residuals would be smaller than:
+
+```{r values, echo=FALSE, message=FALSE, comment=NA}
+3 * sqrt(var(log(CrimeData$ViolentCrimesPerPop)))
+```
+
+However, in large data sets like this one, we should not assume that standardised residuals outside 3 standard deviations regime must be outliers -- values a little outside can also occur by chance.
+
+The first plot underneath is the plot of residuals vs order. To remind before cleaning multivariate outliers the residuals formed a pattern which now disappeared and the plot shows improvements. 
+
+In the second plot, we are plotting on x-axis residual of observation i vs residual of observation i+1 that does not show an obvious problem with the correlation that we recheck by testing VIF. The test brings similar result as before so we still have a problem with collinearity 
+
+```{r, echo=FALSE, message=FALSE, comment=NA, fig.width=10, fig.height=5, warning=FALSE}
+par(las=1, mfrow=c(1,1))
+plot(residuals(modImpr_log), ylab="Residuals", main = "residuals vs order") 
+abline(h=0)
+plot(residuals(modImpr_log)[-1986], residuals(modImpr_log)[-1], xlab=expression(hat(epsilon)[i]), ylab=expression(hat(epsilon)[i+1]), main = "residuals vs residuals")
+library(car)
+VIF <- as.list(vif(modImpr_log))
+VIF <- data.frame(VIF$pctWWage, VIF$pctWSocSec, VIF$perCapInc, VIF$whitePerCap, VIF$PctRecImmig5, VIF$PctRecImmig8, VIF$PctRecImmig10, VIF$PersPerOccupHous, VIF$PctPersOwnOccup) 
+VIF
+```
+
+clearly, 
+
+* Assumption 1: The Y-values are independent is met
+
+* Assumption 2: The Y-values can be expressed as a linear function of the X-variable is met
+
+* Assumption 3: Variation of observations around the regression line is constant is met. For given values of X, Y values are normally distributed are close to the true value
+
+We can look at leverages now. We regard an observation with 2p/n as high leverage and 3p/n as a very high leverage. There are 83 variables that are going into the regression model so observations with high leverage values are observations for which hat value is greater than 0.08350101 and very high leverage value is 0.1252515. The table below summarises distribution of hat values in the dataset. So we see that there are observations with high and very high leverage values. 
+
+```{r, echo=FALSE, comment=NA, warning=FALSE}
+modImpr_log.inf <- influence(modImpr_log)
+summary(modImpr_log.inf$hat) 
+```
+
+Studentized residuals show the normal pattern as we would expect points to follow the diagonal line
+
+```{r, echo=FALSE, message=FALSE, comment=NA, warning=FALSE ,fig.width=10, fig.height=4}
+Sum <- summary(modImpr_log)
+stud <- residuals(modImpr_log)/(Sum$sigma*sqrt(1 - modImpr_log.inf$hat))
+qqnorm(stud, ylab="Studentized Residuals")
+abline(0,1)
+
+```
+
+The summary of stepwise regression models using backwards, forward or combination of both variables selection method after log transformation is included in Appendix 10. In case of choosing regression model before logarithmic transformation of response variable appeared to be backwise selection method. In case of choosing a model after the logarithmic transformation both the backwise and the combination of both are equally good models.  Backwise (Step:  AIC=-1750.03) = Combination (Step:  AIC=-1750.03) = Forward (Step:  AIC=-1748.63). 
+
+```{r fit model1, comment=NA, echo=FALSE, message=FALSE, warning=FALSE, results="hide"}
+modImpr_log <- lm(log(ViolentCrimesPerPop) ~ ., data = CrimeData[,c(-1,-2, -3, -4)])
+# step(modImpr_log, direction = "backward")
+# Step:  AIC=-1750.03
+Sback <- lm(formula = log(ViolentCrimesPerPop) ~ householdsize + racepctblack + racePctWhite + racePctHisp + agePct12t29 + medIncome + pctWInvInc + pctWSocSec + pctWPubAsst + perCapInc + whitePerCap + OtherPerCap + HispPerCap + NumUnderPov + PctEmplManu + PctEmplProfServ + FemalePctDiv + PersPerFam + PctKids2Par + NumIlleg + PctIlleg + PctImmigRec10 + PctNotSpeakEnglWell + PctPersDenseHous + PctHousOccup + PctVacMore6Mos + PctWOFullPlumb + MedOwnCostPctIncNoMtg + PctBornSameState + LandArea + PopDens, data = CrimeData[, c(-1, -2, -3, -4)])
+SbackSum <- summary(Sback)
+
+FitStart <- lm(log(ViolentCrimesPerPop) ~ 1, data = CrimeData[,c(-1,-2, -3, -4)])
+#  The AIC for the best model in forward selection is Step:  AIC=-1748.63
+SForward <- lm(formula = log(ViolentCrimesPerPop) ~ PctKids2Par + PctPersDenseHous + racePctWhite + FemalePctDiv + pctWInvInc + PctBornSameState + householdsize + perCapInc + NumIlleg + PctIlleg + racePctHisp + pctWRetire + PctEmplManu + OtherPerCap + HispPerCap + racepctblack + pctWPubAsst + MedOwnCostPctIncNoMtg + PctHousOccup + PctVacMore6Mos + PctNotSpeakEnglWell + medIncome + pctWSocSec + agePct12t29 + LandArea + PctSameState85 + PersPerFam + PctEmplProfServ + NumUnderPov + PctWOFullPlumb + whitePerCap, data = CrimeData[, c(-1, -2, -3, -4)])
+SForwSum <- summary(SForward)
+
+# step(FitStart, direction = "both", scope = formula(modImpr_log))
+# The best model with AIC of AIC=-1750.03 is
+Stepwise <- lm(formula = log(ViolentCrimesPerPop) ~ PctKids2Par + PctPersDenseHous + racePctWhite + FemalePctDiv + pctWInvInc + PctBornSameState + householdsize + perCapInc + NumIlleg + PctIlleg + racePctHisp + PctEmplManu + OtherPerCap + HispPerCap + racepctblack + pctWPubAsst + MedOwnCostPctIncNoMtg + PctHousOccup + PctVacMore6Mos + PctNotSpeakEnglWell + medIncome + pctWSocSec + agePct12t29 + LandArea + PersPerFam + PctEmplProfServ + NumUnderPov + PctWOFullPlumb + whitePerCap + PctImmigRec10 + PopDens, data = CrimeData[, c(-1, -2, -3, -4)])
+StepwiseSum <- summary(Stepwise)
+```
+
+We can compare the important measurements of the output such as R-squared, R-squared Adjusted, F-statistics and Residuals Standard error
+
+```{r regress table1, comment=NA, echo=FALSE, message=FALSE, warning=FALSE}
+Values <- c(
+SbackSum$sigma, # Backward residual standard error
+SbackSum$r.squared, # Backward r-squared
+SbackSum$adj.r.squared, # Backward R-squared adjusted
+SbackSum$fstatistic[1], # Backward F-statistics
+SForwSum$sigma,
+SForwSum$r.squared,
+SForwSum$adj.r.squared,
+SForwSum$fstatistic[1],
+StepwiseSum$sigma,
+StepwiseSum$r.squared,
+StepwiseSum$adj.r.squared,
+StepwiseSum$fstatistic[1])
+Method <- c(rep("Backwards", 4), rep("Forward", 4), rep("Stepwise", 4))
+Output <- c("StandardErrorResiduals", "R-squared", "R-squaredAdj", "Fstatistics", "StandardErrorResiduals", "R-squared", "R-squaredAdj", "Fstatistics", "StandardErrorResiduals", "R-squared", "R-squaredAdj", "Fstatistics")
+data.frame(Method, Output, Values)
+```
+
+And like before we can check for multicolinearity in selected models by checking range of VIF values in backwise, forwards and combination of both seletion methods respecitvely:
+
+```{r VIF back1, comment=NA, echo=FALSE, warning=FALSE, message=FALSE}
+VIF <- as.list(vif(Sback))
+range(VIF)
+```
+
+```{r VIF forw1, comment=NA, echo=FALSE, warning=FALSE, message=FALSE}
+VIF <- as.list(vif(SForward))
+range(VIF)
+```
+
+```{r VIF SStep1, comment=NA, echo=FALSE, warning=FALSE, message=FALSE}
+VIF <- as.list(vif(Stepwise))
+range(VIF)
+```
+
+More than 10 so there is a problem with multicolinearity. 
+
+And we can show on the graph importance of features for the best models of different approach
+
+```{r plot fit1,  comment=NA, echo=FALSE, message=FALSE, warning=FALSE,}
+library(plyr)
+library(ggplot2)
+library(data.table)
+SbackCoef <- as.data.frame(SbackSum$coefficients[,1])
+SForwCoef <- as.data.frame(SForwSum$coefficients[,1])
+SStepCoef <- as.data.frame(StepwiseSum$coefficients[,1])
+mylist <- list(one = SbackCoef, two = SForwCoef, three = SStepCoef)
+for(i in 1:length(mylist)){
+  colnames(mylist[[i]]) <- paste0(names(mylist)[i], "_", colnames(mylist[[i]]))
+  mylist[[i]]$ROWNAMES <- rownames(mylist[[i]])
+}
+coef <- join_all(mylist, by = "ROWNAMES", type = "full")
+coef <- data.frame(coef$ROWNAMES, coef$`two_SForwSum$coefficients[, 1]`, coef$`one_SbackSum$coefficients[, 1]`, coef$`three_StepwiseSum$coefficients[, 1]`)
+rownames(coef) <- coef$ROWNAMES; coef$ROWNAMES <- NULL
+colnames(coef) <- c("feature", "Sforw", "Sback", "SStep")
+coef[is.na(coef)] <- 0
+to_plot = melt(coef, id.vars = 'feature', variable.name = 'model', value.name = 'coefficient')
+ggplot(to_plot, aes(x = feature, y = coefficient, fill = model)) +
+  coord_flip() +
+  geom_bar(stat = 'identity') +
+  facet_wrap(~model) +
+  theme(axis.text=element_text(size=6)) +
+  guides(fill = FALSE)
+```
+
+## References:
+
+[1] UCI Machine Learning Repository http://archive.ics.uci.edu/ml/datasets/communities+and+crime
+
+[2] Statistical modelling 1 lecture notes 2016/2017. Chapter 3.9.4
+
+[3] "An introduction to Statistical Learning with Applications in R" G.James, D. Witten, T. Hastie, R. Tibshirani, Springer Texts in Statistics, ISBN 978-1-4614-7137-0, page 29 - 30

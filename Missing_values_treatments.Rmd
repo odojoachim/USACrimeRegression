@@ -1,0 +1,386 @@
+---
+title: "Missing_Values_Treatment"
+author: "Marta Fajlhauer"
+date: "17 April 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Missing data imputation methods theory**
+
+The very first step in data analytics process is to clean variables from missing values by imputation whenever there is a reasonable possibility to do so, for example, if there is less than 50 percent of data missing or removing the variable from the dataset before final modelling process if the missingness is untreatable. The raw dataset that we will analyse has many missing values. This is important to recognise method that we should use for missing values treatment as it informs us about the options that we should use to impute or remove the missing data. There are three main categories of missing data mechanisms: 
+
+* **Missing Completely At Random (MCAR)**, occurs when data's missingness is unrelated to the data.
+
+* **Missing At Random(MAR)**, means there is a systematic relationship between the missingness of an outcome variable' and other observed variables, but not the outcome variable itself.
+
+* **Missing Not At Random (MNAR)**, occurs when a variable's missingness is related to the variable itself. It is the weight of the observation itself that is the cause of its being missing. It's like in for some variables in our datasets for which we have the full record but after removing observations recorded as 0 or 1 we have obtained missing values. From the information given on the website from where we have obtained the dataset, we know that: *all values more than 3 SD above the mean are normalized to 1.00; all values more than 3 SD below the mean are normalized to 0.00*[1] so these observations weight is the cause to be removed. 
+
+There are different methods of data imputation.
+
+**Mean substitution**:
+
+The benefit of this method is that it produces unbiased estimates of the mean of a column, however, it produces biased estimates of the variance, since it removes the natural variability that would have occurred in the missing values if they would be not missing. The equation for the substitution is $$\bar{x} = \frac{\sum_{}^{} x}{n}$$
+
+**Regression imputation**
+
+The benefit of this method is that it produces unbiased estimates of the mean and regression coefficients (so long as the relevant variables are included in the regression model). This improves variability in the data as the predicted values of the missing data lie right on the regression line but, as we know, very few data points lie right on the regression line—there is usually a normally distributed residual (error) term. Due to this, regression imputation underestimates the variability of the missing values. Hence it will result in biased estimates of the variance and covariance between different columns. Since we expected the error term to be zero we obtain the equation: $$\widehat{y} = X \beta = X(X^TX)^{-1}X^Ty$$
+
+**Stochastic regression method**
+
+The benefit of this method is that it produces unbiased estimates of the mean, variance, covariance, and regression coefficients. It does this by adding a random (stochastic) value to the predictions of regression imputation. This random added value is sampled from the residual (error) distribution of the linear regression— which is assumed to be a normal distribution. This method restores the variability in the missing values. Drawbacks are that standard errors and confidence intervals are smaller than they should be. Since it produces only one imputed dataset, it does not capture the extent to which we are uncertain about the residuals and our coefficient estimates. Since the error term (epsilon) we do not expect to be zero it is now included in the calculation: $$\widehat{y} = X \beta = X(X^TX)^{-1}X^Ty + \epsilon$$
+
+**Multiple imputation**
+
+We generate multiple versions of the imputed data with different estimations of the missing data, where the imputed values are drawn from a distribution. The uncertainty about what the imputed values should be is reflected in the variation between the multiply imputed datasets. We perform our intended analysis separately with each of these m amounts of completed datasets. 
+
+**Predictive mean matching (pmm) in R**
+
+*The first step performs stochastic linear regression imputation using coefficients for each predictor estimated from the data. The second step chooses slightly different estimates of these regression coefficients and proceeds into the next imputation. The first step of the next imputation uses the slightly different coefficient estimates to perform stochastic linear regression imputation again. After that, in the second step of the second iteration, still, other coefficient estimates are generated to be used in the third imputation. This cycle goes on until we have m multiply imputed datasets. How do we choose these different coefficient estimates at the second step of each imputation? Traditionally, the approach is Bayesian in nature; these new coefficients are drawn from each of the coefficients' posterior distribution, which describes credible values of the estimate using the observed data and uninformative priors.* [2]
+
+**Missing data imputation methods practice**
+
+First decision made was to remove county and community variables due to many missing values and the fact that there are variables community name and state that represent a similar thing. I also removed fold variable as I won't be concentrating on unfolding data. I constructed a table showing pattern of missing data. 
+
+```{r Appendix1, echo=FALSE, message=FALSE, warning=FALSE, comment=NA}
+Crime <- read.csv(file = "RawData.csv")
+Crime <- Crime[,c(-2, -3, -5)]
+library(mice)
+PatternMissingData <- md.pattern(Crime)
+PatternMissingData[,c(1:4, 121: 125, 126)]
+```
+
+In the table the rows are sorted in an increasing amount-of-missingness order, the first row always refers to the missing data pattern containing the least amount of missing data. From this table, we can see that USA Census data has a full record but the FBI and LEMAS data contain many missing values. In the table, the last row contains a count of the number of missing data points in each column. From the data collection description we also know that *all values more than 3 SD above of the mean are normalized to 1.00, all values more than 3 SD below the mean are normalized to 0.00*[1]. Hence they are all potential outliers so the decision to remove those values. After that, I constructed the missing data pattern table once again. Due to the size of the table: 546 rows and 126 columns. I have summarised number of missing values for each variable. 
+
+```{r Appendix 2a, echo=FALSE, message=FALSE, warning=FALSE, comment=NA}
+library(readr)
+Crime <- read_csv("RawData.csv")
+Crime <- Crime[,c(-2, -3, -5)]
+Crime[Crime == 1] <- NA
+Crime[Crime == 0] <- NA
+sort(apply(is.na(Crime),2,sum))
+```
+
+52203 missing numbers in the data, 21% of data consist of missing values. To simplify the selection process for data cleaning purposes we can visualise which variables we should choose. Variables that we marked as pink have more than 50 percent of missing values so we can remove them and recheck if we didn't omit any.
+
+
+```{r NA vis, comment=NA, echo=FALSE, fig.width = 20, fig.height = 10}
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+missing_percentages <- function(frame, color, cutoff_condition){
+  res <- apply(frame, 2, pMiss)
+  par(mar=c(2,3,5,2))
+  mp <- barplot(res, main="Figure 1 (a and b): missing data by percentage", ylab = "percentage missing (%)", col = ifelse(res >= cutoff_condition, color, 'steelblue'), xaxt='n')
+  text(mp, par('usr')[3], labels = names(res), srt = 45,  adj = c(1.1, 1.1), xpd = T, cex = .7)
+}
+par(mfrow=c(1,1))
+missing_percentages(Crime, 'hotpink', 50)
+```
+
+
+```{r NA check, echo=FALSE, fig.width = 20, fig.height = 10, include=FALSE}
+myvars <- names(Crime) %in% c("pctUrban", "NumInShelters", "NumStreet", "LemasSwFTFieldPerPop", "LemasTotalReq", "LemasTotReqPerPop", "PolicReqPerOffic",
+"PolicPerPop", "PctPolicAsian", "PctPolicHisp", "PctPolicBlack", "PctPolicWhite", "RacialMatchCommPol", "PctPolicMinor",
+"PolicCars", "PolicOperBudg", "LemasPctPolicOnPatr", "PolicBudgPerPop", "LemasPctOfficDrugUn", "LemasGangUnitDeploy",
+"LemasSwornFT", "LemasSwFTPerPop", "LemasSwFTFieldOps", "OfficAssgnDrugUnits", "NumKindsDrugsSeiz", "PolicAveOTWorked")
+NewCrime <- Crime[!myvars]
+missing_percentages(NewCrime, 'hotpink', 50)
+```
+
+We can create a missing data pattern once again. Now there is less than 4% of missing values in the dataset. For those variables that missing values number is less than 10% we use mean substitution method. Whilst mean substitution produces unbiased estimates of the mean of a column, it produces biased estimates of the variance, since it removes the natural variability that would have occurred in the missing values had they not been missing. If we impute 10% of given variable by mean substitution method then we not make a big harm to our data but variables with more than 10% NA should be treated differently
+
+```{r NA doublecheck, echo=FALSE, fig.width = 20, fig.height = 10, include=FALSE}
+missing_percentages(NewCrime, 'red', 10)
+```
+
+```{r mean substitution, echo=FALSE,message=FALSE, results = 'hide', comment = NA}
+NewCrime$householdsize <- ifelse(is.na(NewCrime$householdsize), mean(NewCrime$householdsize, na.rm=TRUE), NewCrime$householdsize)
+NewCrime$racepctblack <- ifelse(is.na(NewCrime$racepctblack), mean(NewCrime$racepctblack, na.rm=TRUE), NewCrime$racepctblack)
+NewCrime$racePctWhite <- ifelse(is.na(NewCrime$racePctWhite), mean(NewCrime$racePctWhite, na.rm=T), NewCrime$racePctWhite)
+NewCrime$racePctAsian <- ifelse(is.na(NewCrime$racePctAsian), mean(NewCrime$racePctAsian, na.rm = T), NewCrime$racePctAsian)
+NewCrime$racePctHisp <- ifelse(is.na(NewCrime$racePctHisp), mean(NewCrime$racePctHisp, na.rm = T), NewCrime$racePctHisp)
+NewCrime$agePct12t21 <- ifelse(is.na(NewCrime$agePct12t21), mean(NewCrime$agePct12t29, na.rm = T), NewCrime$agePct12t21)
+NewCrime$agePct12t29 <- ifelse(is.na(NewCrime$agePct12t29), mean(NewCrime$agePct12t29, na.rm = T), NewCrime$agePct12t29)
+NewCrime$agePct16t24 <- ifelse(is.na(NewCrime$agePct16t24), mean(NewCrime$agePct16t24, na.rm = T), NewCrime$agePct16t24)
+NewCrime$agePct65up <- ifelse(is.na(NewCrime$agePct65up), mean(NewCrime$agePct65up, na.rm = T), NewCrime$agePct65up)
+NewCrime$medIncome <- ifelse(is.na(NewCrime$medIncome), mean(NewCrime$medIncome, na.rm = T), NewCrime$medIncome)
+NewCrime$pctWWage <- ifelse(is.na(NewCrime$pctWWage), mean(NewCrime$pctWWage, na.rm = T), NewCrime$pctWWage)
+NewCrime$pctWFarmSelf <- ifelse(is.na(NewCrime$pctWFarmSelf), mean(NewCrime$pctWFarmSelf, na.rm = T), NewCrime$pctWFarmSelf)
+NewCrime$pctWInvInc <- ifelse(is.na(NewCrime$pctWInvInc), mean(NewCrime$pctWInvInc, na.rm = T), NewCrime$pctWInvInc)
+NewCrime$pctWSocSec <- ifelse(is.na(NewCrime$pctWSocSec), mean(NewCrime$pctWSocSec, na.rm = T), NewCrime$pctWSocSec)
+NewCrime$pctWPubAsst <- ifelse(is.na(NewCrime$pctWPubAsst), mean(NewCrime$pctWPubAsst, na.rm = T), NewCrime$pctWPubAsst)
+NewCrime$pctWRetire <- ifelse(is.na(NewCrime$pctWRetire), mean(NewCrime$pctWRetire, na.rm = T), NewCrime$pctWRetire)
+NewCrime$medFamInc <- ifelse(is.na(NewCrime$medFamInc), mean(NewCrime$medFamInc, na.rm = T), NewCrime$medFamInc)
+NewCrime$perCapInc <- ifelse(is.na(NewCrime$perCapInc), mean(NewCrime$perCapInc, na.rm = T), NewCrime$perCapInc)
+NewCrime$whitePerCap <- ifelse(is.na(NewCrime$whitePerCap), mean(NewCrime$whitePerCap, na.rm = T), NewCrime$whitePerCap)
+NewCrime$blackPerCap <- ifelse(is.na(NewCrime$blackPerCap), mean(NewCrime$blackPerCap, na.rm = T), NewCrime$blackPerCap)
+NewCrime$AsianPerCap <- ifelse(is.na(NewCrime$AsianPerCap), mean(NewCrime$AsianPerCap, na.rm = T), NewCrime$AsianPerCap)
+NewCrime$OtherPerCap <- ifelse(is.na(NewCrime$OtherPerCap), mean(NewCrime$OtherPerCap, na.rm = T), NewCrime$OtherPerCap)
+NewCrime$HispPerCap <- ifelse(is.na(NewCrime$HispPerCap), mean(NewCrime$HispPerCap, na.rm = T), NewCrime$HispPerCap)
+NewCrime$PctPopUnderPov <- ifelse(is.na(NewCrime$PctPopUnderPov), mean(NewCrime$PctPopUnderPov, na.rm = T), NewCrime$PctPopUnderPov)
+NewCrime$PctLess9thGrade <- ifelse(is.na(NewCrime$PctLess9thGrade), mean(NewCrime$PctLess9thGrade, na.rm = T), NewCrime$PctLess9thGrade)
+NewCrime$PctNotHSGrad <- ifelse(is.na(NewCrime$PctNotHSGrad), mean(NewCrime$PctNotHSGrad, na.rm = T), NewCrime$PctNotHSGrad)
+NewCrime$PctBSorMore <- ifelse(is.na(NewCrime$PctBSorMore), mean(NewCrime$PctBSorMore, na.rm = T), NewCrime$PctBSorMore)
+NewCrime$PctUnemployed <- ifelse(is.na(NewCrime$PctUnemployed), mean(NewCrime$PctUnemployed, na.rm = T), NewCrime$PctUnemployed)
+NewCrime$PctEmploy <- ifelse(is.na(NewCrime$PctEmploy), mean(NewCrime$PctEmploy, na.rm = T), NewCrime$PctEmploy)
+NewCrime$PctEmplManu <- ifelse(is.na(NewCrime$PctEmplManu), mean(NewCrime$PctEmplManu, na.rm = T), NewCrime$PctEmplManu)
+NewCrime$PctEmplProfServ <- ifelse(is.na(NewCrime$PctEmplProfServ), mean(NewCrime$PctEmplProfServ, na.rm = T), NewCrime$PctEmplProfServ)
+NewCrime$PctOccupManu <- ifelse(is.na(NewCrime$PctOccupManu), mean(NewCrime$PctOccupManu, na.rm = T), NewCrime$PctOccupManu)
+NewCrime$PctOccupMgmtProf <- ifelse(is.na(NewCrime$PctOccupMgmtProf), mean(NewCrime$PctOccupMgmtProf, na.rm = T), NewCrime$PctOccupMgmtProf)
+NewCrime$MalePctDivorce <- ifelse(is.na(NewCrime$MalePctDivorce), mean(NewCrime$MalePctDivorce, na.rm = T), NewCrime$MalePctDivorce)
+NewCrime$MalePctNevMarr <- ifelse(is.na(NewCrime$MalePctNevMarr), mean(NewCrime$MalePctNevMarr, na.rm = T), NewCrime$MalePctNevMarr)
+NewCrime$FemalePctDiv <- ifelse(is.na(NewCrime$FemalePctDiv), mean(NewCrime$FemalePctDiv, na.rm = T), NewCrime$FemalePctDiv)
+NewCrime$TotalPctDiv <- ifelse(is.na(NewCrime$TotalPctDiv), mean(NewCrime$TotalPctDiv, na.rm = T), NewCrime$TotalPctDiv)
+NewCrime$PersPerFam <- ifelse(is.na(NewCrime$PersPerFam), mean(NewCrime$PersPerFam, na.rm = T), NewCrime$PersPerFam)
+NewCrime$PctKids2Par <- ifelse(is.na(NewCrime$PctKids2Par), mean(NewCrime$PctKids2Par, na.rm = T), NewCrime$PctKids2Par)
+NewCrime$PctYoungKids2Par <- ifelse(is.na(NewCrime$PctYoungKids2Par), mean(NewCrime$PctYoungKids2Par, na.rm = T), NewCrime$PctYoungKids2Par)
+NewCrime$PctTeen2Par <- ifelse(is.na(NewCrime$PctTeen2Par), mean(NewCrime$PctTeen2Par, na.rm = T), NewCrime$PctTeen2Par)
+NewCrime$PctWorkMomYoungKids <- ifelse(is.na(NewCrime$PctWorkMomYoungKids), mean(NewCrime$PctWorkMomYoungKids, na.rm = T), NewCrime$PctWorkMomYoungKids)
+NewCrime$PctWorkMom <- ifelse(is.na(NewCrime$PctWorkMom), mean(NewCrime$PctWorkMom, na.rm = T), NewCrime$PctWorkMom)
+NewCrime$PctImmigRecent <- ifelse(is.na(NewCrime$PctImmigRecent), mean(NewCrime$PctImmigRecent, na.rm = T), NewCrime$PctImmigRecent)
+NewCrime$PctImmigRec5 <- ifelse(is.na(NewCrime$PctImmigRec5), mean(NewCrime$PctImmigRec5, na.rm = T), NewCrime$PctImmigRec5)
+NewCrime$PctImmigRec8 <- ifelse(is.na(NewCrime$PctImmigRec8), mean(NewCrime$PctImmigRec8, na.rm = T), NewCrime$PctImmigRec8)
+NewCrime$PctImmigRec10 <- ifelse(is.na(NewCrime$PctImmigRec10), mean(NewCrime$PctImmigRec10, na.rm = T), NewCrime$PctImmigRec10)
+NewCrime$PctRecImmig10 <- ifelse(is.na(NewCrime$PctRecImmig10), mean(NewCrime$PctRecImmig10, na.rm = T), NewCrime$PctRecImmig10)
+NewCrime$PctSpeakEnglOnly <- ifelse(is.na(NewCrime$PctSpeakEnglOnly), mean(NewCrime$PctSpeakEnglOnly, na.rm = T), NewCrime$PctSpeakEnglOnly)
+NewCrime$PctNotSpeakEnglWell <- ifelse(is.na(NewCrime$PctNotSpeakEnglWell), mean(NewCrime$PctNotSpeakEnglWell, na.rm = T), NewCrime$PctNotSpeakEnglWell)
+NewCrime$PctLargHouseFam <- ifelse(is.na(NewCrime$PctLargHouseFam), mean(NewCrime$PctLargHouseFam, na.rm = T), NewCrime$PctLargHouseFam)
+NewCrime$PctLargHouseOccup <- ifelse(is.na(NewCrime$PctLargHouseOccup), mean(NewCrime$PctLargHouseOccup, na.rm = T), NewCrime$PctLargHouseOccup)
+NewCrime$PersPerOccupHous <- ifelse(is.na(NewCrime$PersPerOccupHous), mean(NewCrime$PersPerOccupHous, na.rm = T), NewCrime$PersPerOccupHous)
+NewCrime$PersPerOwnOccHous <- ifelse(is.na(NewCrime$PersPerOwnOccHous), mean(NewCrime$PersPerOwnOccHous, na.rm = T), NewCrime$PersPerOwnOccHous)
+NewCrime$PersPerRentOccHous <- ifelse(is.na(NewCrime$PersPerRentOccHous), mean(NewCrime$PersPerRentOccHous, na.rm = T), NewCrime$PersPerRentOccHous)
+NewCrime$PctPersOwnOccup <- ifelse(is.na(NewCrime$PctPersOwnOccup), mean(NewCrime$PctPersOwnOccup, na.rm = T), NewCrime$PctPersOwnOccup)
+NewCrime$PctPersDenseHous <- ifelse(is.na(NewCrime$PctPersDenseHous), mean(NewCrime$PctPersDenseHous, na.rm = T), NewCrime$PctPersDenseHous)
+NewCrime$PctHousLess3BR <- ifelse(is.na(NewCrime$PctHousLess3BR), mean(NewCrime$PctHousLess3BR, na.rm = T), NewCrime$PctHousLess3BR)
+NewCrime$HousVacant <- ifelse(is.na(NewCrime$HousVacant), mean(NewCrime$HousVacant, na.rm = T), NewCrime$HousVacant)
+NewCrime$PctHousOccup <- ifelse(is.na(NewCrime$PctHousOccup), mean(NewCrime$PctHousOccup, na.rm = T), NewCrime$PctHousOccup)
+NewCrime$PctHousOwnOcc <- ifelse(is.na(NewCrime$PctHousOwnOcc), mean(NewCrime$PctHousOwnOcc, na.rm = T), NewCrime$PctHousOwnOcc)
+NewCrime$PctVacantBoarded <- ifelse(is.na(NewCrime$PctVacantBoarded), mean(NewCrime$PctVacantBoarded, na.rm = T), NewCrime$PctVacantBoarded)
+NewCrime$PctVacMore6Mos <- ifelse(is.na(NewCrime$PctVacMore6Mos), mean(NewCrime$PctVacMore6Mos, na.rm = T), NewCrime$PctVacMore6Mos)
+NewCrime$MedYrHousBuilt <- ifelse(is.na(NewCrime$MedYrHousBuilt), mean(NewCrime$MedYrHousBuilt, na.rm = T), NewCrime$MedYrHousBuilt)
+NewCrime$PctHousNoPhone <- ifelse(is.na(NewCrime$PctHousNoPhone), mean(NewCrime$PctHousNoPhone, na.rm = T), NewCrime$PctHousNoPhone)
+NewCrime$PctWOFullPlumb <- ifelse(is.na(NewCrime$PctWOFullPlumb), mean(NewCrime$PctWOFullPlumb, na.rm = T), NewCrime$PctWOFullPlumb)
+NewCrime$RentMedian <- ifelse(is.na(NewCrime$RentMedian), mean(NewCrime$RentMedian, na.rm = T), NewCrime$RentMedian)
+NewCrime$RentHighQ <- ifelse(is.na(NewCrime$RentHighQ), mean(NewCrime$RentHighQ, na.rm = T), NewCrime$RentHighQ)
+NewCrime$MedRent <- ifelse(is.na(NewCrime$MedRent), mean(NewCrime$MedRent, na.rm = T), NewCrime$MedRent)
+NewCrime$MedRentPctHousInc <- ifelse(is.na(NewCrime$MedRentPctHousInc), mean(NewCrime$MedRentPctHousInc, na.rm = T), NewCrime$MedRentPctHousInc)
+NewCrime$MedOwnCostPctInc <- ifelse(is.na(NewCrime$MedOwnCostPctInc), mean(NewCrime$MedOwnCostPctInc, na.rm = T), NewCrime$MedOwnCostPctInc)
+NewCrime$MedOwnCostPctIncNoMtg <- ifelse(is.na(NewCrime$MedOwnCostPctIncNoMtg), mean(NewCrime$MedOwnCostPctIncNoMtg, na.rm = T), NewCrime$MedOwnCostPctIncNoMtg)
+NewCrime$PctForeignBorn <- ifelse(is.na(NewCrime$PctForeignBorn), mean(NewCrime$PctForeignBorn, na.rm = T), NewCrime$PctForeignBorn)
+NewCrime$PctBornSameState <- ifelse(is.na(NewCrime$PctBornSameState), mean(NewCrime$PctBornSameState, na.rm = T), NewCrime$PctBornSameState)
+NewCrime$PctSameHouse85 <- ifelse(is.na(NewCrime$PctSameHouse85), mean(NewCrime$PctSameHouse85, na.rm = T), NewCrime$PctSameHouse85)
+NewCrime$PctSameCity85 <- ifelse(is.na(NewCrime$PctSameCity85), mean(NewCrime$PctSameCity85, na.rm = T), NewCrime$PctSameCity85)
+NewCrime$PctSameState85 <- ifelse(is.na(NewCrime$PctSameState85), mean(NewCrime$PctSameState85, na.rm = T), NewCrime$PctSameState85)
+NewCrime$LandArea <- ifelse(is.na(NewCrime$LandArea), mean(NewCrime$LandArea, na.rm = T), NewCrime$LandArea)
+NewCrime$PopDens <- ifelse(is.na(NewCrime$PopDens), mean(NewCrime$PopDens, na.rm = T), NewCrime$PopDens)
+NewCrime$ViolentCrimesPerPop <- ifelse(is.na(NewCrime$ViolentCrimesPerPop), mean(NewCrime$ViolentCrimesPerPop, na.rm = T), NewCrime$ViolentCrimesPerPop)
+NewCrime$indianPerCap <- ifelse(is.na(NewCrime$indianPerCap), mean(NewCrime$indianPerCap, na.rm = T), NewCrime$indianPerCap)
+NewCrime$PctFam2Par <- ifelse(is.na(NewCrime$PctFam2Par), mean(NewCrime$PctFam2Par, na.rm = T), NewCrime$PctFam2Par)
+NewCrime$PctIlleg <- ifelse(is.na(NewCrime$PctIlleg), mean(NewCrime$PctIlleg, na.rm = T), NewCrime$PctIlleg)
+NewCrime$PctRecentImmig <- ifelse(is.na(NewCrime$PctRecentImmig), mean(NewCrime$PctRecentImmig, na.rm = T), NewCrime$PctRecentImmig)
+NewCrime$PctRecImmig5 <- ifelse(is.na(NewCrime$PctRecImmig5), mean(NewCrime$PctRecImmig5, na.rm = T), NewCrime$PctRecImmig5)
+NewCrime$PctRecImmig8 <- ifelse(is.na(NewCrime$PctRecImmig8), mean(NewCrime$PctRecImmig8, na.rm = T), NewCrime$PctRecImmig8)
+NewCrime$OwnOccLowQuart <- ifelse(is.na(NewCrime$OwnOccLowQuart), mean(NewCrime$OwnOccLowQuart, na.rm = T), NewCrime$OwnOccLowQuart)
+NewCrime$OwnOccMedVal <- ifelse(is.na(NewCrime$OwnOccMedVal), mean(NewCrime$OwnOccMedVal, na.rm = T), NewCrime$OwnOccMedVal)
+NewCrime$OwnOccHiQuart <- ifelse(is.na(NewCrime$OwnOccMedVal), mean(NewCrime$OwnOccMedVal, na.rm = T), NewCrime$OwnOccMedVal)
+NewCrime$RentLowQ <- ifelse(is.na(NewCrime$RentLowQ), mean(NewCrime$RentLowQ, na.rm = T), NewCrime$RentLowQ)
+```
+
+```{r 10NA, echo=FALSE, fig.width = 20, fig.height = 10}
+missing_percentages(NewCrime, 'red', 10)
+```
+
+The variables: population, numbUrban, NumUnderPov, NumIlleg, NumImmig, MedNumBR, PctUsePubTrans have more than 10% of missing values hence we would like to use the predictive mean matching method in R. However first we will look into correlation matrix to remove variables that are highly correlated with each other. That's to remove colinearity in the data problem. Correlation matrices produced are:
+
+```{r Appendix 4a, ,echo=FALSE, fig.height=20, fig.width=40}
+library(png)
+library(grid)
+img <- readPNG("C:/Users/fajlh/Desktop/Advanced Statistics Project/NA/CorrVariables.png")
+grid.raster(img)
+```
+
+```{r Appendix 4b, fig.width=40, fig.height=20,echo=FALSE, warning=FALSE}
+library(png)
+library(grid)
+img <- readPNG("C:/Users/fajlh/Desktop/Advanced Statistics Project/NA/CorrVariables1.png")
+grid.raster(img)
+```
+
+The full code to produce correlogram is:
+
+```{r correlogram, echo = FALSE, warning=FALSE, message=FALSE, comment=NA, results="hide", include=FALSE}
+# library(corrgram)
+# par(bg = 'white')
+# corrgram(NewCrime[,3:25], upper.panel=panel.cor, main="Vars 2 - Vars 25",  col.regions = colorRampPalette(c("darkslateblue","gold", "white" , "chartreuse4", "darkred")))
+# corrgram(NewCrime[26:50], upper.panel=panel.cor, main="Vars 25 - Vars 50",  col.regions = colorRampPalette(c("darkslateblue","gold", "white" , "chartreuse4", "darkred")))
+# corrgram(NewCrime[51:75], upper.panel=panel.cor, main="Vars 51 - Vars 75",  col.regions = colorRampPalette(c("darkslateblue","gold", "white" , "chartreuse4", "darkred")))
+# corrgram(NewCrime[76:97], upper.panel=panel.cor, main="Vars 76 - Vars 97",  col.regions = colorRampPalette(c("darkslateblue","gold", "white" , "chartreuse4", "darkred")))
+# NewCrime <- NewCrime[,-which(names(NewCrime) %in% c("medFamInc", "TotalPctDiv", "PctFam2Par", "OwnOccHiQuart", "RentLowQ", "OwnOccLowQuart", "RentHighQ"))]
+# corrgram(NewCrime[,2:45], upper.panel=panel.cor, main="Vars 2 - Vars 45",  col.regions = colorRampPalette(c("darkslateblue","gold", "white" , "chartreuse4", "darkred")))
+# corrgram(NewCrime[,46:90], upper.panel=panel.cor, main="Vars 46 - Vars 90",  col.regions = colorRampPalette(c("darkslateblue","gold", "white" , "chartreuse4", "darkred")))
+# NewCrime <- NewCrime[,-which(names(NewCrime) %in% c("RentMedian", 'MedNumBR'))]
+```
+The decisions made based on the output of correlograms are: 
+
+* Median Family income is a subset of Median Income so decision to remove this variable. 
+
+* PctFam2Par and PctKids2Par are very similar things so Decision to remove PctFam2Par. 
+
+* Male PctDivorced and FemalePctDivorced are two partitions of Total percentage divorced hence decision to remove Total PctDivorced.
+
+* OwnOccMedVla left but LowQ and HighQ removed. 
+
+* MedRent left but HighQ and LowQ removed
+
+```{r removing variables, echo=FALSE,message=FALSE, results = 'hide', comment = NA}
+NewCrime <- NewCrime[,-which(names(NewCrime) %in% c("medFamInc", "TotalPctDiv", "PctFam2Par", "OwnOccHiQuart", "RentLowQ", "OwnOccLowQuart", "RentHighQ"))]
+```
+
+I have decided to construct correlogram once again after removing those variables to look for some future improvements. 
+
+* RentMedian (rental housing - median rent) and MedRent (median gross rent) measure the same feature so the decision of removing RentMedian. 
+
+* As medNumBR shows only 0.5 in non-missing values observations and there are 793 observations the variable is not taken into analysis
+
+```{r, removing variables continued, echo=FALSE,message=FALSE, results = 'hide', comment = NA}
+NewCrime <- NewCrime[,-which(names(NewCrime) %in% c("RentMedian", 'MedNumBR'))]
+```
+
+\newpage
+
+**Figure 2: Visualisation of missing numbers**
+
+```{r, echo=FALSE, comment=NA, warning=FALSE, results="hide", fig.width=10, fig.height=4}
+aggr_plot <- VIM::aggr(NewCrime, col=c('navyblue','red'), numbers=FALSE, only.miss = TRUE, prop = FALSE, sortVars=TRUE, labels=names(data), cex.axis=.5, gap=3, ylab=c("Histogram of missing data","Pattern"), main = "Figure 2")
+```
+
+Once visualising the missing data we will apply the pmm method of imputation and visualise the output. 
+
+```{r NAS, echo = FALSE, warning=FALSE, message=FALSE, comment=NA, results="hide", include=FALSE}
+# imp <- mice(NewCrime, method = "pmm")
+# plot(imp)
+# This displays, for every attribute imputed, a density plot of the actual non-missing values (the thick line) and the imputed values (the thin lines). 
+# We are looking to see that the distributions are similar.
+# stripplot(imp, population+numbUrban+NumUnderPov+NumIlleg+NumImmig+PctUsePubTrans~.imp, pch=c(1,20),jitter=FALSE,layout=c(3,2))
+# The figure shows the distributions of all variables as individual points. Blue points are observed, the red points are imputed.
+# Furthermore, note that the red points follow the blue points reasonably well, including the gaps in the distribution
+# xyplot(imp, population ~ ViolentCrimesPerPop | .imp, pch = 20, cex = 1.4)
+# xyplot(imp, numbUrban ~ ViolentCrimesPerPop | .imp, pch = 20, cex = 1.4)
+# xyplot(imp, NumUnderPov ~ ViolentCrimesPerPop | .imp, pch = 20, cex = 1.4)
+# xyplot(imp, NumIlleg ~ ViolentCrimesPerPop | .imp, pch = 20, cex = 1.4)
+# xyplot(imp, NumImmig ~ ViolentCrimesPerPop | .imp, pch = 20, cex = 1.4)
+# xyplot(imp, PctUsePubTrans ~ ViolentCrimesPerPop | .imp, pch = 20, cex = 1.4)
+# Imputations are plotted in red. 
+# The blue points are the same across diffrent panels, but the red point vary.
+# The red points have more or less the same shape as blue data, which indicates that they could have been plausible measurements if they had not been missing. 
+# The diffrences between the red points represents our uncertainty about the true (but unknown) values.
+# par(mfrow=c(1,1))
+# library(lattice)
+# densityplot(imp, scales = list(x = list(relation = "free")))
+# plot densities of both the observed and imputed values of all variables to see whether the imputations are reasonable.
+# imp_models <- with(imp, lm(ViolentCrimesPerPop ~ population + householdsize + racepctblack + racePctWhite + racePctAsian + 
+# racePctHisp + agePct12t21 + agePct12t29 + agePct16t24 + agePct65up + numbUrban + medIncome + pctWWage + pctWFarmSelf + 
+# pctWInvInc + pctWSocSec + pctWPubAsst + pctWRetire + perCapInc + whitePerCap + blackPerCap + indianPerCap + AsianPerCap +
+# OtherPerCap + HispPerCap + NumUnderPov + PctPopUnderPov + PctLess9thGrade + PctNotHSGrad + PctBSorMore + PctUnemployed + 
+# PctEmploy + PctEmplManu + PctEmplProfServ + PctOccupManu + PctOccupMgmtProf + MalePctDivorce + MalePctNevMarr + FemalePctDiv +
+# PersPerFam + PctKids2Par + PctYoungKids2Par + PctTeen2Par + PctWorkMomYoungKids+ PctWorkMom + NumIlleg + PctIlleg + NumImmig +
+# PctImmigRecent + PctImmigRec5 + PctImmigRec8 + PctImmigRec10 + PctRecentImmig+ PctRecImmig5 + PctRecImmig8 + PctRecImmig10 + 
+# PctSpeakEnglOnly + PctNotSpeakEnglWell + PctLargHouseFam + PctLargHouseOccup + PersPerOccupHous + PersPerOwnOccHous + 
+# PersPerRentOccHous + PctPersOwnOccup + PctPersDenseHous + PctHousLess3BR + HousVacant + PctHousOccup + PctHousOwnOcc + 
+# PctVacantBoarded + PctVacMore6Mos + MedYrHousBuilt + PctHousNoPhone + PctWOFullPlumb + OwnOccMedVal + MedRent + MedRentPctHousInc +
+# MedOwnCostPctInc + MedOwnCostPctIncNoMtg + PctForeignBorn + PctBornSameState + PctSameHouse85 + PctSameCity85 + PctSameState85 +
+# LandArea + PopDens + PctUsePubTrans))
+# Dataset1 <- complete(imp, action = 1, include = FALSE)
+# Dataset2 <- complete(imp, action = 2, include = FALSE)
+# Dataset3 <- complete(imp, action = 3, include = FALSE)
+# Dataset4 <- complete(imp, action = 4, include = FALSE)
+# Dataset5 <- complete(imp, action = 5, include = FALSE)
+# OLS1<-summary(lm(ViolentCrimesPerPop~.,data = Dataset1[,3:90]))
+# OLS2<-summary(lm(ViolentCrimesPerPop~.,data = Dataset2[,3:90]))
+# OLS3<-summary(lm(ViolentCrimesPerPop~.,data = Dataset3[,3:90]))
+# OLS4<-summary(lm(ViolentCrimesPerPop~.,data = Dataset4[,3:90]))
+# OLS5<-summary(lm(ViolentCrimesPerPop~.,data = Dataset5[,3:90]))
+# OLS1
+# OLS2
+# OLS3
+# OLS4
+# OLS5
+# NewCrime <- Dataset1
+# apply(is.na(NewCrime),2,sum)
+# NewCrime[,3:90] <- round(NewCrime[,3:90],3)
+```
+
+Multiple imputation method to impute data with missing values in multiple columns requires iteration over all these columns a few times. Every time R library called: "mice" produces imputations and using Bayes statistics sample new parameters estimates from the parameters posterior distribution for all columns with missing values data. The final imputation are the values from the final iteration. We can see trace plots of the mean and standard deviations for each variable with missing values where each line in each plot is one of the m imputations. We can’t see the trend in the trace plots. Variance within a chain (m chains) should be equal to the variance between the chains that leads us to the conclusion that the convergence was achieved. If we would underlying trend in the plot for example that all plots on each graph space would merge together then the convergence would not be achieved. 
+
+**Figure 3: Visualisation of the convergence in multiple imputation methods**
+
+```{r fig.width=10, fig.height=4,echo=FALSE}
+library(png)
+library(grid)
+img <- readPNG("C:/Users/fajlh/Desktop/Advanced Statistics Project/NA/plot(imp).png")
+grid.raster(img)
+```
+
+
+Next, we can plot density plot of the actual non-missing values (blue) and the imputed values (red plots). We can see that the distributions are similar 
+
+\newpage
+
+**Figure 4: density plots of actual non-missing and the imputed values**
+
+```{r fig.width=10, fig.height=4,echo=FALSE}
+library(png)
+library(grid)
+img <- readPNG("C:/Users/fajlh/Desktop/Advanced Statistics Project/NA/densityplot(imp).png")
+grid.raster(img)
+```
+
+In addition to that, we can plot stripplot that shows the distributions of all imputed variables as individual points. The first plot shows missing values data and dataset produced after each imputation. Blue points are observed, the red points are imputed. Note that the red points follow the blue points reasonably well, especially in later iterations, including the gaps in the distribution.
+
+**Figure 5: stripplots of distribution of all imputed values**
+
+```{r fig.width=10, fig.height=4,echo=FALSE}
+library(png)
+library(grid)
+img <- readPNG("C:/Users/fajlh/Desktop/Advanced Statistics Project/NA/stripplot(imp).png")
+ grid.raster(img)
+```
+
+We can check how imputation process has inputted missing values at each variable during the iteration process. 
+
+```{r Appendix 5, fig.width=40, fig.height=20,echo=FALSE}
+library(png)
+library(grid)
+img <- readPNG("C:/Users/fajlh/Desktop/Advanced Statistics Project/NA/xyplots.png")
+grid.raster(img)
+```
+
+
+```{r Appendix 5b, fig.width=40, fig.height=20,echo=FALSE}
+library(png)
+library(grid)
+img <- readPNG("C:/Users/fajlh/Desktop/Advanced Statistics Project/NA/xyplots1.png")
+grid.raster(img)
+```
+
+Dataset selection process was made by comparing OLS result from 5 imputed dataset. Even if the dataset is not clean yet that was natural selection process since we want to perform advanced regression techniques after cleaning the dataset. With the highest R-squared, R-squared Adj and the smallest residual error dataset 1 seems to be the best choice hence decision of selecting this dataset for further analyses. 
+
+\newpage
+
+**Figure 6: Table withimportant information to select imputed dataset**
+
+```{r fig.width=10, fig.height=4,echo=FALSE}
+library(png)
+library(grid)
+img <- readPNG("C:/Users/fajlh/Desktop/Advanced Statistics Project/OLS.png")
+ grid.raster(img)
+```
+
+#### Reference
+
+[1] UCI Machine Learning Repository http://archive.ics.uci.edu/ml/datasets/communities+and+crime
+
+[2] R Predictive analysis Tony Fishetti, Eric Mayor, Rui Miguel Page 281 Packt books

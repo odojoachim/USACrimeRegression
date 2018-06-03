@@ -1,0 +1,261 @@
+---
+title: "ShrinkageMethods:RidgeLASSOelnet"
+author: "Marta Fajlhauer"
+date: "3 June 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Comparision of Ridge, LASSO and Elastic net
+
+We are ready now to compare OLS and Stepwise regression methods with more advanced regression techniques. So what is the difference between OLS and rest of the regression techniques presented in this project? We can decompose error into the error due to bias and error due to variance. The Gauss Markov theorem states that among all linear unbiased estimates OLS has the smallest variance. This implies that OLS estimates have the smallest mean squared error among all linear estimators with no bias. Can there be a biased estimator with a smaller MSE? In shrinkage method, we make up in variance. In the ridge regression, the assumptions are linearity, constant variance, independence. As we have already checked carefully constant variance assumption and linearity assumption is met and y values are independent. The big advantage is that normality not needs to be assumed. 
+
+**Ridge**
+
+In regression modelling the values of coefficients are determined by fitting a polynomial to training data. This can be done by minimising the error function that measures the missfit between the function $y(x, \beta)$ for any value of $\beta$. It can be represented by $$E(\beta) = \frac{1}{2}\displaystyle\sum_{n=1}^{N}[y(x_n,\beta)-\widehat{y_i}]$$ (x) where $\widehat{y_i}$ are predicted values. The next problem is selecting order of polynomial that we should take into the model. For each order of the polynomial we can evaluate the residual value of $E(\widehat{\beta})$. We need to be careful to not overfit the model and do not choose polynomial with too big order. One technique that is often use to control is to adding penalty element to the error function (x). in order to discourage the coefficients from reaching large values. The simplest penalty term takes the form of sum of squares of all the coefficients leading to a modified eror function. $$E(\beta) = \frac{1}{2}\displaystyle\sum_{n=1}^{N}[y(x_n,\beta)-\widehat{y_i}] + \frac{\lambda}{2}\|\beta\|^2 = E_D(\beta) + \lambda E_w(\beta)$$ where $$\|\beta\| = \beta^T\beta = \beta_0^2 + \beta_1^2 + \dots + \beta_M^2$$ and the coefficient $\lambda$ governs the relative improtance of the regularisation term compared with the sum-of-squares error. This is ridge regression equation. 
+
+Ridge regression proceeds by adding a small value $\lambda$ to the diagonal elements of the correlation matrix. One of the main obstacles in ridge regression is choosing an appropriate value of $\lambda$.
+
+
+*Let* **F** *represent the appropriate centered and scaled "X matrix" when the regression problem under study hasis in "correlation form". Thus, if the orginal model is* $$Y = \boldsymbol{\beta}_0 + \boldsymbol{\beta}_1 \boldsymbol{Z}_1 + \boldsymbol{\beta}_2 \boldsymbol{Z}_2 +...+ \boldsymbol{\beta}_r \boldsymbol{Z}_r + \varepsilon$$. *The new centered and scaled predictor variables are* $$f_{ij} = \frac{\boldsymbol{Z}_{ju} - \overline{\boldsymbol{Z}}_j}{\sqrt{S_{jj}}}$$ where $$\overline{\boldsymbol{Z}}_j$$ *is the average of the* $\boldsymbol{Z}_{ju}, u=1, 2,..., n$ *and* $$\boldsymbol{S}_{jj}=\sum_{u}^{} (\boldsymbol{Z}_{ju}-\overline{\boldsymbol{Z}_j})^2$$. *Thus* 
+$$F = \begin{bmatrix}
+       f_{11} & f_{21} & \dots & f_{r1} \\[0.3em]
+       \vdots & \vdots & \vdots & \vdots \\[0.3em]
+       f_{1u} & f_{2u}  & \dots & f_{ru} \\[0.3em]
+       \vdots & \vdots & \vdots & \vdots \\[0.3em]
+       f_{1n} & f_{2n} & \dots & f_{rn}
+     \end{bmatrix}$$ 
+*and* $F^TF$ *is the correlation matrix of the Z.*[6] 
+
+The ridge regression estimates of the r elements of $$\boldsymbol{\beta}_F=(\boldsymbol{\beta}_{1F}, \boldsymbol{\beta}_{2F}, \dots , \boldsymbol{\beta}_{rF})^T$$ are the elements of $$\overrightarrow{b}_F(\lambda) = (b_{1F}(\lambda), b_{2F}(\lambda), \dots ,b_{rF}(\lambda))^T$$ given by: $$\overrightarrow{b}_F(\lambda) = (F^TF + I_{r}\lambda)^{-1}F^TY$$ where $\lambda$ is a positive number. Note that $\lambda=0$ we obtain the least squares estimates. We can plot the coefficients $b_{jF}(\lambda)$ against $\lambda$ and examine the resulting figure in ridge trace
+
+
+A ridge trace is a plot that shows the ridge regression coefficients as the function of $\lambda$. In R there is a procedure that automatically selects the lowest value of $\lambda$ that is calculated a general cross-validation procedure (GVC). The ridge regression doesn't set the coefficients exactly to zero unless theta = infinity. Therefore, the ridge regression cannot perform variable selection. Ridge regression performs well when there is a subset of true coefficients that are small or zero.
+
+*Once* $\lambda$ *has been selected (equal to* $\lambda^*$) *the values* $b_j(\lambda^*)$ *are used in the prediction equation. The resulting equation is made up of estimates that are not least squares and are biased but that are more stable and provide a smaller overall means square error.* [6]  
+
+```{r, echo=FALSE,message=FALSE, results = 'hide', comment = NA, results="hide"}
+library(readr)
+CrimeData <- read_csv("C:/Users/fajlh/Documents/USB stick/statistics/classification/CrimeDM/CrimeMultivariateClean.csv")
+set.seed(33)
+split=0.70
+data <- sample(2, nrow(CrimeData), replace = T, prob = c(0.7, 0.3))
+tdat <- CrimeData[data==1,]
+vdat = CrimeData[data==2,]
+tdats <- as.data.frame(scale(tdat[,5:87]))
+ViolentCrimesPerPop    =tdat$ViolentCrimesPerPop
+```
+
+First, we will examine the correlation among the values in the data. From the correlation plots attached [Appendix 4], we can see that there are variables that are highly correlated with each other and variables that correlation between them is close to zero. We will compare ordinary least squares fit of the full model using multiple regression with other advanced regression techniques. The summary of the OLS is attached to the Appendix 8 and 10 but We know that for the best model, with the smallest AIC value, r squared is 0.57 with adjusted r squared 0.57 when ridge regression accuracy score is 0.63. There is an improvement in the model selection.
+
+```{r ridge, echo=FALSE, message=FALSE, comment=NA}
+library (ridge)
+linRidgeMod <- linearRidge(ViolentCrimesPerPop ~ ., data = tdat[,5:87])
+predicted <- predict(linRidgeMod, vdat)
+compare <- cbind (actual=vdat$ViolentCrimesPerPop, predicted)
+mean (apply(compare, 1, min)/apply(compare, 1, max)) # 0.63 accuracy
+plot(linRidgeMod)
+```
+
+Can we achieve even better result using other advanced regression techniques? 
+
+**LASSO**
+
+LASSO stands for Least Absolute Selection and Shrinkage Operator. In this process, some of the coefficients are shrunk to zero exactly so it performs variable selection in the linear model. In Ridge regression, we introduced an idea of adding regularisation term to an error function to omit problem with over-fitting. One of the simplest forms of reguliser is $$E_w(\beta)=\frac{1}{2}\beta^T \beta$$. The LASSO regression has a form: $$E_D(\beta)  + \lambda E_w(\beta) = min(\beta)\frac{1}{2}\displaystyle\sum_{i=1}^{N} y_i - \beta_0 - \displaystyle\sum_{j=1}^{p} x_{ij} \beta_j)^2 + \lambda \displaystyle\sum_{j=1}^{p} |\beta_j|$$
+As we increase lambda more coefficients shrink to zero. So, variables that are less likely to shrink to zero indicate variable more important in the model. The challenge of LASSO is to find a suitable value of the regularization coefficient $\lambda$. The disadvantage of LASSO is that if there is a group of explanatory variables that are correlated with each other LASSO takes only one variable out of the group into the model ignoring others. It takes only this variable that has the most significant impact on the model. However, if in the group will be more than 2 significant variables that are important the second one will be ignored by LASSO. 
+
+```{r, echo=FALSE,message=FALSE, results = 'hide', comment = NA}
+set.seed(389173367)
+split=0.70
+data <- sample(2, nrow(CrimeData), replace = T, prob = c(0.7, 0.3))
+tdat <- CrimeData[data==1,]
+vdat = CrimeData[data==2,]
+tdats <- as.data.frame(scale(tdat[,5:87]))
+ViolentCrimesPerPop    =tdat$ViolentCrimesPerPop
+library(lars)
+```
+
+We can visualise LASSO path to check when new variables are introduced into the model [Figure 18]. In the plot, we can see: At the top are numbers of steps when different variables were introduced. 89 steps mean that there are 89 variables in the dataset as when reguliser is equal to one all variables are going into the model. On the left side of the box are variables numbers that were introduced to the model. $\frac{|\beta|}{max|\beta|}$ is the reguliser that has interval [0;1]. We can see how increasing value of $\beta$ in comparison to the maximum value allows more and more variables get into the model. On the right side of the box, we have the magnitude of the coefficient that goes into the model. In Appendix 11, we can see exactly which variable was introduced when. The new variables were coming in. PctKids2Par, PctIlleg, racePctWhite, PctPersDenseHous and so on
+
+**Figure 17 LASSO trace**
+
+```{r LASSO trace, echo=FALSE, message=FALSE, comment=NA, warning=FALSE ,fig.width=10, fig.height=5}
+par(bg='white')
+lasso<-lars(x=as.matrix(tdats),y=ViolentCrimesPerPop,type='lasso',trace=FALSE,normalize=TRUE,intercept=TRUE)
+par(mfrow=c(1,1));plot(lasso)
+```
+
+The goal of modelling using LASSO is to decide on this value of $\lambda$ that will give the best accuracy result in our model. First, we will use the randomly selected value of $\lambda = 0.375$. We can compare coefficients from LASSO with coefficients from OLS and see that they shrunk. That's one of the main goals of this approach. [Appendix 8, 10, 12]. We will now look for s value that will the best describe our model using 10 fold cross-validation. 10 cross-validation produces 10 different sizes for which the number of observation is displayed. 
+
+**Figure 18 LASSO plot to choose the best $\lambda$**
+
+```{r LASSO plot, echo=FALSE, message=FALSE, comment=NA, warning=FALSE ,fig.width=10, fig.height=5}
+set.seed(389173367)
+cvlab<-sample(1:10, 1430,replace=TRUE)
+table(cvlab)
+svec<-seq(0,1,.05)
+J<-length(svec)
+lassolist<-list()
+predtrain<-list()
+MSEstore<-matrix(NA,J,10)
+for(i in 1:10){
+  lassolist[[i]]<-lars(x=as.matrix(tdats)[cvlab!=i,],y=ViolentCrimesPerPop[cvlab!=i],type='lasso',trace=FALSE,normalize=TRUE,intercept=TRUE)
+  predtrain[[i]]<-fit<-predict.lars(object=lassolist[[i]],newx=tdats[cvlab==i,],s=svec,mode='fraction',type='fit')$fit
+  for(j in 1:J){
+    MSEstore[j,i]<-mean((predtrain[[i]][,j]-ViolentCrimesPerPop[cvlab==i])^2) #This computes MSE
+  }
+}
+meanMSE<-apply(MSEstore,1,mean)
+stdMSE<-apply(MSEstore,1,sd)/sqrt(10)
+plot(svec,meanMSE,ylim=c(0.01,0.03),pch=16,col=colors()[258],axes=FALSE,cex=1.2,
+     xlab='Shrinkage factor lambda',ylab='Mean square error',cex.lab=1.7,main='Average CV prediction error as a function of lambda')
+axis(1,cex.axis=1.4,cex.axis=1.2)
+axis(2,las=1,at=seq(0.01, 0.03,0.005),cex.axis=1.2)
+lines(svec,meanMSE,lty=1,col=colors()[258])
+for(i in 1:J)segments(svec[i],(meanMSE[i]-stdMSE[i]),svec[i],(meanMSE[i]+stdMSE[i]))
+abline(h=(meanMSE+stdMSE)[18],lty=2)
+points(svec[5],meanMSE[5],col='red',pch=15,cex=1.3)
+legend(.35,0.03,legend=c('mean MSE','standard error (SE)','1 SE above lowest mean','chosen value of lambda'),
+       pch=c(16,NA,NA,15),col=c(colors()[258],1,1,'red'),cex=1.1,lty=c(1,1,2,NA))
+```
+
+The graph shows mean MSE for each value of $\lambda$. The chosen value of $\lambda$ is the first one that is below the distance of 1 SE above lowest mean. The first model corresponds to intercept. These are the coefficients for the chosen model with $\lambda$ value of 0.2.
+
+```{r coefficients, echo=FALSE, message=FALSE, comment=NA, results="hide"}
+predict.lars(lasso,s=.2,mode='fraction',type='coefficients')
+```
+
+We are selecting variables: racepctblack, racePctWhite, pctWInvInc, FemalePctDiv, PctKids2Par, PctIlleg, PctNotSpeakEnglWell, PctPersDenseHous, MedRentPctHousInc, PctBornSameState, MedOwnCostPctIncNoMtg into the model and the magnitude of the coefficients are saved in the Appendix 13. 
+
+To compare how well does the training model work on training and validation sets we compare MSE of the validation set with a mean of the training set. Since the mean MSE of validation set is in the interval (0.013, 0.027) that is constructed from values of the mean MSE for training sets. Very small difference between the estimator and what is estimated leads to the conclusion that this is a good model selection.
+
+```{r mean MSE, comment=NA, echo=FALSE, message=FALSE}
+vdats <- as.data.frame(scale(vdat[,5:87]))
+yhat_v<-predict.lars(lasso,newx=vdats,s=.2,mode='fraction',type='fit')$fit
+ViolentCrimesPerPop_v<-vdat$ViolentCrimesPerPop
+mean( (yhat_v-ViolentCrimesPerPop_v)^2)
+meanMSE<-apply(MSEstore,1,mean)
+sort(meanMSE) 
+```
+
+**Elastic Net**
+
+When we are working with high dimensional data correlations between the variables can be high resulting in collinearity. The lasso penalty is not secure in the choice among a set of strong but correlated variables. As I already explained in the project LASSO fails to perform group selection. The ridge penalty tends to shrink the coefficients of correlated variables toward each other. We may want to include variables that are correlated with each other to the final modelling process. The compromise is the elastic net penalty. $$E_w(\beta) = \displaystyle\sum_{j=1}^{p} (\alpha |\beta_j| + (1 - \alpha) \beta_j^2)$$
+The equation assures that highly correlated features are averaged and there is a sparse solution in coefficients of these averaged features. 
+
+**Comparision of Advanced regression techniques**
+
+After learning about different advanced regression techniques it is good to see the application on our dataset. First, we can visualise trace plot for different models and cross-validation curve (red dotted line) and upper and lower standard deviation curves along the lambda sequence (error bars). Two selected lambdas are indicated by the vertical dotted lines. 
+
+**Figure 19: trace plots and cross-validation curves**
+
+```{r comparision plots, echo=FALSE, message=FALSE, comment=NA, warning=FALSE }
+library(data.table)
+library(glmnet)
+library(ggplot2)
+split=0.70
+set.seed(33)
+data <- sample(2, nrow(CrimeData), replace = T, prob = c(0.7, 0.3))
+train_Crime <- CrimeData[data==1,]
+test_Crime = CrimeData[data==2,]
+fit.lasso <- glmnet(as.matrix(train_Crime[,5:87]), train_Crime$ViolentCrimesPerPop, family="gaussian", alpha=1)
+fit.ridge <- glmnet(as.matrix(train_Crime[,5:87]), train_Crime$ViolentCrimesPerPop, family="gaussian", alpha=0)
+fit.elnet <- glmnet(as.matrix(train_Crime[,5:87]), train_Crime$ViolentCrimesPerPop, family="gaussian", alpha=0.5)
+cvfit1 <- cv.glmnet(as.matrix(train_Crime[,5:87]), train_Crime$ViolentCrimesPerPop, family="gaussian", alpha=1)
+cvfit2 <- cv.glmnet(as.matrix(train_Crime[,5:87]), train_Crime$ViolentCrimesPerPop, family="gaussian", alpha=0)
+cvfit3 <- cv.glmnet(as.matrix(train_Crime[,5:87]), train_Crime$ViolentCrimesPerPop, family="gaussian", alpha=0.5)
+
+par(mfrow=c(3,2))
+plot(cvfit1, main="LASSO") # we fit a model with MSE equal to 1
+plot(fit.lasso, main = "LASSO") # plot of lasso trace
+plot(cvfit2, main="Ridge") # We fit a model with MSE equal to 0
+plot(fit.ridge, main = "Ridge") # plot of ridge trace
+plot(cvfit3, main="Elastic Net") # we fit a model with MSE equal to 0.5
+plot(fit.elnet, main = "Elastic Net") # plot of elastic net trace
+```
+
+We can also visualise what variables are selected during feature selection model for LASSO and Elastic Net. There are 3 variables more selected to LASSO regression which are the percentage of public assistance, PctVacMore6Mos and NumbUrban. There are six variables that are selected as very important variables by both models which are: RacePctWhite, RacePctBlack, PctNotSpeakEnglishWell, PctKids2Par, PctIlleg and Pct House Occup and rest of the variables selected by both of the models are less significant namely: PctWInvInc, PctTeen2Par, PctSameHouse85, PctPersDenseHouse, PctBornSameState, MedRentPctHouseInc, FemalePctDiv. 
+
+**Figure 20: Importance of variables in Ridge, LASSO and Elastic Net models**
+
+```{r model selection, echo=FALSE, message=FALSE, comment=NA, warning=FALSE}
+set.seed(33)
+fit.lasso <- cv.glmnet(as.matrix(train_Crime[,5:87]), train_Crime$ViolentCrimesPerPop, family="gaussian", alpha=1)
+best_lambda = fit.lasso$lambda.1se
+lasso_coef = fit.lasso$glmnet.fit$beta[,fit.lasso$glmnet.fit$lambda==best_lambda]
+fit.elnet <- cv.glmnet(as.matrix(train_Crime[,5:87]), train_Crime$ViolentCrimesPerPop, family="gaussian", alpha=0.4)
+best_lambda = fit.elnet$lambda.1se
+elnet_coef = fit.elnet$glmnet.fit$beta[,fit.elnet$glmnet.fit$lambda==best_lambda]
+fit.ridge <- cv.glmnet(as.matrix(train_Crime[,5:87]), train_Crime$ViolentCrimesPerPop, family="gaussian", alpha=1)
+best_lambda = fit.ridge$lambda.1se
+ridge_coef = fit.ridge$glmnet.fit$beta[,fit.ridge$glmnet.fit$lambda==best_lambda]
+coef <- data.table(lasso = lasso_coef,
+                   elnet = elnet_coef,
+                   ridge = ridge_coef)
+coef[,feature := names(ridge_coef)]
+
+to_plot = melt(coef, id.vars = 'feature', variable.name = 'model', value.name = 'coefficient')
+ggplot(to_plot, aes(x = feature, y = coefficient, fill = model)) +
+  coord_flip() +
+  geom_bar(stat = 'identity') +
+  facet_wrap(~model) +
+  theme(axis.text=element_text(size=6)) +
+  guides(fill = FALSE)
+```
+
+We can compare models to select the best one. With the highest r-squared of close to 0.68 and the lowest MAE - Mean Absolute Error (0.72), the elastic net seems to be the best model for this problem. This is a big improvement from OLS approach where was the r-squared value of 0.57.
+
+In the table below we have:
+
+* **Mean Absolute Error (MAE)**: It is a mean value of the sum of absolute residual values. It measures the average size of the error between the actual and predicted value where all individuals have equal weight. $$MAE = \frac{1}{n}\displaystyle\sum_{j=1}^{n}|y_i - \hat{y}_i|$$. So smaller the residuals, smaller the MAE and better prediction outcome. elnet has the smallest Min(MAE) and the model with the smallest MAE is taken into account. 
+
+* **Root mean squared error (RMSE)**: RMSE the square root of the average of squared differences between prediction and actual observation. $$RMSE = sqrt{\frac{1}{n}\displaystyle\sum_{j=1}^{n}(y_i - \hat{y}_i)^2}$$ the RMSE gives a relatively high weight to large errors. MAE is constant and RMSE increases as the variance associated with the frequency distribution of error magnitudes also increase. Similarly to MAE, the best model is the one with the smallest RMSE.
+
+* **R-squared** measures how much variability in the data is explained by the model. So we know that for these selected variables explained 68% number of violent crimes per population. $$R^2 = \frac{Sum Squared Regression error}{Sum Squared Total Error}$$
+
+
+```{r comparing coefficients, comment=NA, echo=FALSE, message=FALSE, warning=FALSE, fig.width=5}
+library(caret)
+control <- trainControl(method='repeatedcv', number=10, repeats=3)
+metric <- "Rsquared"
+preProcess=c("center", "scale")
+set.seed(33) 
+caret.elnet <- train(ViolentCrimesPerPop~racepctblack + racePctWhite + pctWInvInc +
+                       FemalePctDiv + PctTeen2Par + PctKids2Par +PctIlleg +
+                       PctNotSpeakEnglWell + PctPersDenseHous + PctHousOccup +
+                       MedRentPctHousInc + PctBornSameState + PctSameHouse85,
+                     data=CrimeData, method="enet", metric=metric, preProc=c("center",
+                                                                             "scale"),
+                     trControl=control)
+caret.ridge <- train(ViolentCrimesPerPop~racepctblack + racePctWhite + pctWInvInc +
+                       FemalePctDiv + PctTeen2Par + PctKids2Par +PctIlleg +
+                       PctNotSpeakEnglWell + PctPersDenseHous + PctHousOccup +
+                       MedRentPctHousInc + PctBornSameState + PctSameHouse85,
+                     data=CrimeData, 
+                     method="ridge", metric=metric, preProc=c("center", "scale"),
+                     trControl=control)
+caret.lasso <- train(ViolentCrimesPerPop~racepctblack + racePctWhite + pctWInvInc +
+                       FemalePctDiv + PctTeen2Par + PctKids2Par +PctIlleg + 
+                       PctNotSpeakEnglWell + PctPersDenseHous + PctHousOccup +
+                       MedRentPctHousInc + PctBornSameState + PctSameHouse85,
+                     data=CrimeData, method="lasso", metric=metric, preProc=c("center",
+                                                                              "scale"),
+                     trControl=control)
+results <- resamples(list(elnet=caret.elnet, ridge=caret.ridge, lasso=caret.lasso))
+summary(results)
+```
+
+So we have 68 percent variability explained in the data which suggest that there is indeed positive correlation between number of violent crimes in a given region and variables that LASSO and ElasticNet feature selection methods highlighted as important namely: racepctblack, racePctWhite, pctWInvInc, FemalePctDiv, PctTeen2Par, PctKids2Par, PctIlleg, PctNotSpeakEnglWell, PctPersDenseHous, PctHousOccup, MedRentPctHousInc, PctBornSameState, PctSameHouse85. 
+
+I have included a table that represents which variables were used to Backwards Stepwise Regression before and after logarithmic transformation of the response variable as well as LASSO and Elastic Net. I didn't include Ridge regression as Ridge regression fails to perform selection process. There are 8 variables selected by different feature selection methods and 6 variables selected by 3 out of 4 models. Some of the variables are measures of family life such as PctKids2Par, PctTeen2Par and FamlePctDiv. Other variables related to hard conditions of immigrants in the USA such as PctIlleg, PctNotSpeakEnglwell, PctBornSameState. On the other hand, there are also variables measuring poverty level of the society such as pctWPubAsst, PctPersDenseHous, PctHouseOccup, PctWInvInc. There are also: RacePctWhite, RacePctBlack and PctVacMore6Months
+
+**Figure 21: Variables going into the model after running different feature selection methods**
+```{r ImputSelection1, echo=FALSE}
+library(png)
+library(grid)
+img <- readPNG("C:/Users/fajlh/Desktop/Advanced Statistics Project/NA/ImportancePattern.png")
+grid.raster(img)
+```
